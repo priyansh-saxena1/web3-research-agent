@@ -46,13 +46,20 @@ class Web3CoPilotService:
     def __init__(self):
         try:
             logger.info("Initializing Web3 Research Service...")
+            logger.info(f"Environment check - GEMINI_API_KEY present: {bool(config.GEMINI_API_KEY)}")
             
             if config.GEMINI_API_KEY:
                 logger.info("AI research capabilities enabled")
-                self.agent = Web3ResearchAgent()
-                self.enabled = self.agent.enabled
+                try:
+                    self.agent = Web3ResearchAgent()
+                    self.enabled = self.agent.enabled
+                    logger.info(f"Web3ResearchAgent initialized - enabled: {self.enabled}")
+                except Exception as e:
+                    logger.error(f"Failed to initialize Web3ResearchAgent: {e}")
+                    self.agent = None
+                    self.enabled = False
             else:
-                logger.info("AI research capabilities disabled - API key required")
+                logger.warning("AI research capabilities disabled - GEMINI_API_KEY not configured")
                 self.agent = None
                 self.enabled = False
             
@@ -1199,13 +1206,22 @@ async def get_homepage(request: Request):
             let messageCount = 0;
 
             async function checkStatus() {
+                console.log('Checking system status...');
                 try {
                     const response = await fetch('/status');
+                    console.log('Status response:', response.status, response.statusText);
+                    
+                    if (!response.ok) {
+                        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                    }
+                    
                     const status = await response.json();
+                    console.log('Status data:', status);
                     
                     const statusDiv = document.getElementById('status');
                     
                     if (status.enabled && status.gemini_configured) {
+                        console.log('✅ System is fully operational');
                         statusDiv.className = 'status online';
                         statusDiv.innerHTML = `
                             <span>Research systems online</span>
@@ -1213,7 +1229,8 @@ async def get_homepage(request: Request):
                                 Tools: ${status.tools_available.join(' • ')}
                             </div>
                         `;
-                    } else {
+                    } else if (status.enabled) {
+                        console.log('⚠️ System is in limited mode');
                         statusDiv.className = 'status offline';
                         statusDiv.innerHTML = `
                             <span>Limited mode - Configure GEMINI_API_KEY for full functionality</span>
@@ -1221,11 +1238,22 @@ async def get_homepage(request: Request):
                                 Available: ${status.tools_available.join(' • ')}
                             </div>
                         `;
+                    } else {
+                        console.log('❌ System is disabled');
+                        statusDiv.className = 'status offline';
+                        statusDiv.innerHTML = '<span>System disabled</span>';
                     }
                 } catch (error) {
+                    console.error('❌ Status check failed:', error);
                     const statusDiv = document.getElementById('status');
                     statusDiv.className = 'status offline';
-                    statusDiv.innerHTML = '<span>Connection error</span>';
+                    statusDiv.innerHTML = `<span>Connection error: ${error.message}</span>`;
+                    
+                    // Retry after 5 seconds
+                    setTimeout(() => {
+                        console.log('🔄 Retrying status check...');
+                        checkStatus();
+                    }, 5000);
                 }
             }
 
@@ -1497,10 +1525,20 @@ async def get_homepage(request: Request):
 
             // Initialize
             document.addEventListener('DOMContentLoaded', () => {
-                console.log('Application initialized');
+                console.log('🚀 Web3 Research Co-Pilot - Application initializing...');
+                console.log('📍 Current URL:', window.location.href);
+                console.log('🌐 User Agent:', navigator.userAgent.substring(0, 100));
+                
                 initializeTheme();
-                checkStatus();
+                
+                // Initial status check with delay to ensure server is ready
+                setTimeout(() => {
+                    console.log('🔍 Starting status check...');
+                    checkStatus();
+                }, 1000);
+                
                 document.getElementById('queryInput').focus();
+                console.log('✅ Application initialization complete');
             });
         </script>
     </body>
@@ -1510,16 +1548,40 @@ async def get_homepage(request: Request):
 
 @app.get("/status")
 async def get_status():
-    """System status endpoint"""
-    status = {
-        "enabled": service.enabled,
-        "gemini_configured": bool(config.GEMINI_API_KEY),
-        "tools_available": ["Market Data", "DeFi Analytics", "Network Metrics"],
-        "airaa_enabled": service.airaa.enabled if service.airaa else False,
-        "timestamp": datetime.now().isoformat(),
-        "version": "2.0.0"
-    }
-    return status
+    """System status endpoint with detailed debugging information"""
+    try:
+        gemini_configured = bool(config.GEMINI_API_KEY)
+        service_enabled = service.enabled
+        agent_available = service.agent is not None
+        
+        status = {
+            "enabled": service_enabled,
+            "gemini_configured": gemini_configured,
+            "agent_available": agent_available,
+            "tools_available": ["Market Data", "DeFi Analytics", "Network Metrics"],
+            "airaa_enabled": service.airaa.enabled if service.airaa else False,
+            "timestamp": datetime.now().isoformat(),
+            "version": "2.0.0",
+            "debug_info": {
+                "gemini_key_length": len(config.GEMINI_API_KEY) if config.GEMINI_API_KEY else 0,
+                "service_enabled": service_enabled,
+                "agent_initialized": agent_available
+            }
+        }
+        logger.info(f"Status check - Enabled: {service_enabled}, Gemini: {gemini_configured}")
+        return status
+    except Exception as e:
+        logger.error(f"Status endpoint error: {e}")
+        return {
+            "enabled": False,
+            "gemini_configured": False,
+            "agent_available": False,
+            "tools_available": [],
+            "airaa_enabled": False,
+            "timestamp": datetime.now().isoformat(),
+            "version": "2.0.0",
+            "error": str(e)
+        }
 
 @app.post("/query", response_model=QueryResponse)
 async def process_query(request: QueryRequest):
