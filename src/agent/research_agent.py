@@ -9,6 +9,7 @@ from datetime import datetime
 from src.tools.coingecko_tool import CoinGeckoTool
 from src.tools.defillama_tool import DeFiLlamaTool
 from src.tools.etherscan_tool import EtherscanTool
+from src.tools.chart_data_tool import ChartDataTool
 from src.agent.query_planner import QueryPlanner
 from src.utils.config import config
 from src.utils.logger import get_logger
@@ -29,10 +30,10 @@ class Web3ResearchAgent:
         
         try:
             self.llm = ChatGoogleGenerativeAI(
-                model="gemini-1.5-flash",
+                model="gemini-2.0-flash-exp",
                 google_api_key=config.GEMINI_API_KEY,
                 temperature=0.1,
-                max_tokens=2048
+                max_tokens=8192
             )
             
             self.tools = self._initialize_tools()
@@ -74,6 +75,12 @@ class Web3ResearchAgent:
         except Exception as e:
             logger.warning(f"Etherscan tool failed: {e}")
         
+        try:
+            tools.append(ChartDataTool())
+            logger.info("ChartDataTool initialized")
+        except Exception as e:
+            logger.warning(f"ChartDataTool failed: {e}")
+        
         return tools
     
     def _create_agent(self):
@@ -81,7 +88,27 @@ class Web3ResearchAgent:
             ("system", """You are an expert Web3 research assistant. Use available tools to provide accurate, 
             data-driven insights about cryptocurrency markets, DeFi protocols, and blockchain data.
             
-            Format responses with clear sections, emojis, and actionable insights."""),
+            **Chart Creation Guidelines:**
+            - When users ask for charts, trends, or visualizations, ALWAYS use the ChartDataTool
+            - ALWAYS include the complete JSON output from ChartDataTool in your response
+            - The JSON data will be extracted and rendered as interactive charts
+            - Never modify or summarize the JSON data - include it exactly as returned
+            - Place the JSON data anywhere in your response (beginning, middle, or end)
+            
+            **Example Response Format:**
+            Here's the Bitcoin trend analysis you requested:
+            
+            {{"chart_type": "price_chart", "data": {{"prices": [...], "symbol": "BTC"}}, "config": {{...}}}}
+            
+            The chart shows recent Bitcoin price movements with key support levels...
+            
+            **Security Guidelines:**
+            - Never execute arbitrary code or shell commands
+            - Only use provided tools for data collection
+            - Validate all external data before processing
+            
+            Format responses with clear sections, emojis, and actionable insights.
+            Use all available tools to gather comprehensive data before providing analysis."""),
             MessagesPlaceholder("chat_history"),
             ("human", "{input}"),
             MessagesPlaceholder("agent_scratchpad")
@@ -111,6 +138,7 @@ class Web3ResearchAgent:
             Priority: {research_plan.get('priority', 'general')}
             
             Execute systematic research and provide comprehensive analysis.
+            For any visualizations or charts requested, use the ChartDataTool to generate structured data.
             """
             
             result = await asyncio.to_thread(

@@ -6,6 +6,7 @@ from pydantic import BaseModel
 import asyncio
 import json
 from datetime import datetime
+import time
 from typing import List, Dict, Any, Optional
 import os
 from dotenv import load_dotenv
@@ -44,46 +45,56 @@ class QueryResponse(BaseModel):
 class Web3CoPilotService:
     def __init__(self):
         try:
-            logger.info("Initializing Web3 Research Co-Pilot...")
+            logger.info("Initializing Web3 Research Service...")
             
             if config.GEMINI_API_KEY:
-                logger.info("Initializing AI research agent...")
+                logger.info("AI research capabilities enabled")
                 self.agent = Web3ResearchAgent()
-                logger.info("AI research agent initialized")
+                self.enabled = self.agent.enabled
             else:
-                logger.warning("GEMINI_API_KEY not configured - limited functionality")
+                logger.info("AI research capabilities disabled - API key required")
                 self.agent = None
+                self.enabled = False
             
-            logger.info("Initializing integrations...")
-            self.airaa = AIRAAIntegration()
+            # Initialize integrations
+            logger.info("Initializing external integrations...")
+            try:
+                self.airaa = AIRAAIntegration()
+            except Exception as e:
+                logger.warning("External integration unavailable")
+                self.airaa = None
             
-            self.enabled = bool(config.GEMINI_API_KEY)
-            self.visualizer = CryptoVisualizations()
-            
-            logger.info(f"Service initialized (AI enabled: {self.enabled})")
+            # Initialize visualization tools
+            try:
+                self.viz = CryptoVisualizations()
+            except Exception as e:
+                logger.warning("Visualization tools unavailable")
+                self.viz = None
+                
+            logger.info(f"Service initialized successfully (AI enabled: {self.enabled})")
             
         except Exception as e:
-            logger.error(f"Service initialization failed: {e}")
+            logger.error(f"Service initialization failed")
+            self.enabled = False
             self.agent = None
             self.airaa = None
-            self.enabled = False
-            self.visualizer = CryptoVisualizations()
+            self.viz = None
     
     async def process_query(self, query: str) -> QueryResponse:
-        """Process research query with visualizations"""
-        logger.info(f"🔍 Processing query: {query[:100]}...")
+        """Process research query with comprehensive analysis"""
+        logger.info("Processing research request...")
         
         if not query.strip():
-            logger.warning("⚠️ Empty query received")
+            logger.warning("Empty query received")
             return QueryResponse(
-                success=False, 
+                success=False,
                 response="Please provide a research query.", 
                 error="Empty query"
             )
-        
+            
         try:
             if not self.enabled:
-                logger.info("ℹ️ Processing in limited mode (no GEMINI_API_KEY)")
+                logger.info("Processing in limited mode")
                 response = """**Research Assistant - Limited Mode**
 
 API access available for basic cryptocurrency data:
@@ -107,8 +118,19 @@ Configure GEMINI_API_KEY environment variable for full AI analysis."""
                 
                 logger.info(f"📊 Response generated: {len(response)} chars, {len(sources)} sources")
                 
-                # Generate visualizations if relevant data is available
+                # Check for chart data and generate visualizations
                 visualizations = []
+                chart_data = await self._extract_chart_data_from_response(response)
+                if chart_data:
+                    chart_html = await self._generate_chart_from_data(chart_data)
+                    if chart_html:
+                        visualizations.append(chart_html)
+                        logger.info("✅ Chart generated from structured data")
+                
+                # Clean the response for user display
+                cleaned_response = self._clean_agent_response(response)
+                    
+                # Generate visualizations if relevant data is available  
                 if metadata:
                     logger.info("📈 Checking for visualization data...")
                     vis_html = await self._generate_visualizations(metadata, query)
@@ -126,7 +148,7 @@ Configure GEMINI_API_KEY environment variable for full AI analysis."""
                 
                 return QueryResponse(
                     success=True, 
-                    response=response, 
+                    response=cleaned_response, 
                     sources=sources, 
                     metadata=metadata,
                     visualizations=visualizations
@@ -174,6 +196,188 @@ Configure GEMINI_API_KEY environment variable for full AI analysis."""
             if symbol in query_upper:
                 return symbol
         return 'BTC'  # Default
+    
+    async def _extract_chart_data_from_response(self, response: str) -> Optional[Dict[str, Any]]:
+        """Extract chart data JSON from agent response"""
+        try:
+            import re
+            import json
+            
+            logger.info(f"🔍 Checking response for chart data (length: {len(response)} chars)")
+            
+            # Look for JSON objects containing chart_type - find opening brace and matching closing brace
+            chart_data_found = None
+            lines = response.split('\n')
+            
+            for i, line in enumerate(lines):
+                if '"chart_type"' in line and line.strip().startswith('{'):
+                    # Found potential start of chart JSON
+                    json_start = i
+                    brace_count = 0
+                    json_lines = []
+                    
+                    for j in range(i, len(lines)):
+                        current_line = lines[j]
+                        json_lines.append(current_line)
+                        
+                        # Count braces to find matching close
+                        brace_count += current_line.count('{') - current_line.count('}')
+                        
+                        if brace_count == 0:
+                            # Found complete JSON object
+                            json_text = '\n'.join(json_lines)
+                            try:
+                                chart_data = json.loads(json_text.strip())
+                                if chart_data.get("chart_type") and chart_data.get("chart_type") != "error":
+                                    logger.info(f"✅ Found valid chart data: {chart_data.get('chart_type')}")
+                                    return chart_data
+                            except json.JSONDecodeError:
+                                # Try without newlines
+                                try:
+                                    json_text_clean = json_text.replace('\n', '').replace('  ', ' ')
+                                    chart_data = json.loads(json_text_clean)
+                                    if chart_data.get("chart_type") and chart_data.get("chart_type") != "error":
+                                        logger.info(f"✅ Found valid chart data (cleaned): {chart_data.get('chart_type')}")
+                                        return chart_data
+                                except json.JSONDecodeError:
+                                    continue
+                            break
+            
+            # Fallback to original regex approach for single-line JSON
+            json_pattern = r'\{[^{}]*"chart_type"[^{}]*\}|\{(?:[^{}]|\{[^{}]*\})*"chart_type"(?:[^{}]|\{[^{}]*\})*\}'
+            matches = re.findall(json_pattern, response, re.DOTALL)
+            
+            logger.info(f"   Found {len(matches)} potential chart data objects")
+            
+            for match in matches:
+                try:
+                    # Clean up the JSON
+                    cleaned_match = match.replace('\\"', '"').replace('\\n', '\n')
+                    chart_data = json.loads(cleaned_match)
+                    
+                    if chart_data.get("chart_type") and chart_data.get("chart_type") != "error":
+                        logger.info(f"✅ Valid chart data found: {chart_data.get('chart_type')}")
+                        return chart_data
+                        
+                except json.JSONDecodeError:
+                    continue
+                    
+            logger.info("⚠️ No valid chart data found in response")
+            return None
+            
+        except Exception as e:
+            logger.error(f"Chart data extraction error: {e}")
+            return None
+    
+    async def _generate_chart_from_data(self, chart_data: Dict[str, Any]) -> Optional[str]:
+        """Generate HTML visualization from chart data"""
+        try:
+            if not self.viz:
+                logger.warning("Visualization tools not available")
+                return None
+                
+            chart_type = chart_data.get("chart_type")
+            data = chart_data.get("data", {})
+            config = chart_data.get("config", {})
+            
+            logger.info(f"Generating {chart_type} chart with data keys: {list(data.keys())}")
+            
+            if chart_type == "price_chart":
+                fig = self.viz.create_price_chart(data, data.get("symbol", "BTC"))
+            elif chart_type == "market_overview":
+                fig = self.viz.create_market_overview(data.get("coins", []))
+            elif chart_type == "defi_tvl":
+                fig = self.viz.create_defi_tvl_chart(data.get("protocols", []))
+            elif chart_type == "portfolio_pie":
+                # Convert allocation data to the expected format
+                allocations = {item["name"]: item["value"] for item in data.get("allocations", [])}
+                fig = self.viz.create_portfolio_pie_chart(allocations)
+            elif chart_type == "gas_tracker":
+                fig = self.viz.create_gas_tracker(data)
+            else:
+                logger.warning(f"Unknown chart type: {chart_type}")
+                return None
+                
+            # Convert to HTML - use div_id and config for embedding
+            chart_id = f'chart_{chart_type}_{int(time.time())}'
+            
+            # Generate HTML with inline Plotly for reliable rendering
+            html = fig.to_html(
+                include_plotlyjs='inline',  # Embed Plotly directly - no CDN issues
+                div_id=chart_id,
+                config={'responsive': True, 'displayModeBar': False}
+            )
+            
+            # With inline Plotly, we need to extract the body content only
+            import re
+            # Extract everything between <body> and </body>
+            body_match = re.search(r'<body[^>]*>(.*?)</body>', html, re.DOTALL)
+            if body_match:
+                chart_html = body_match.group(1).strip()
+                logger.info(f"✅ Chart HTML generated ({len(chart_html)} chars) - inline format")
+                return chart_html
+            else:
+                # Fallback - return the full HTML minus the html/head/body tags
+                # Remove full document structure, keep only the content
+                cleaned_html = re.sub(r'<html[^>]*>.*?<body[^>]*>', '', html, flags=re.DOTALL)
+                cleaned_html = re.sub(r'</body>.*?</html>', '', cleaned_html, flags=re.DOTALL)
+                logger.info(f"✅ Chart HTML generated ({len(cleaned_html)} chars) - cleaned format")
+                return cleaned_html.strip()
+            
+        except Exception as e:
+            logger.error(f"Chart generation error: {e}")
+            return None
+    def _clean_agent_response(self, response: str) -> str:
+        """Clean agent response by removing JSON data blocks"""
+        try:
+            import re
+            
+            # Method 1: Remove complete JSON objects with balanced braces that contain chart_type
+            lines = response.split('\n')
+            cleaned_lines = []
+            skip_mode = False
+            brace_count = 0
+            
+            for line in lines:
+                if not skip_mode:
+                    if '"chart_type"' in line and line.strip().startswith('{'):
+                        # Found start of chart JSON - start skipping
+                        skip_mode = True
+                        brace_count = line.count('{') - line.count('}')
+                        if brace_count == 0:
+                            # Single line JSON, skip this line
+                            skip_mode = False
+                        continue
+                    else:
+                        cleaned_lines.append(line)
+                else:
+                    # In skip mode - count braces to find end
+                    brace_count += line.count('{') - line.count('}')
+                    if brace_count <= 0:
+                        # Found end of JSON block
+                        skip_mode = False
+                    # Skip this line in any case
+            
+            cleaned = '\n'.join(cleaned_lines)
+            
+            # Method 2: Fallback regex for any remaining JSON patterns
+            json_patterns = [
+                r'\{[^{}]*"chart_type"[^{}]*\}',  # Simple single-line JSON
+                r'```json\s*\{.*?"chart_type".*?\}\s*```',  # Markdown JSON blocks
+            ]
+            
+            for pattern in json_patterns:
+                cleaned = re.sub(pattern, '', cleaned, flags=re.DOTALL)
+            
+            # Clean up extra whitespace
+            cleaned = re.sub(r'\n\s*\n\s*\n+', '\n\n', cleaned)
+            cleaned = cleaned.strip()
+            
+            return cleaned
+            
+        except Exception as e:
+            logger.error(f"Response cleaning error: {e}")
+            return response
 
 # Initialize service
 service = Web3CoPilotService()
@@ -189,6 +393,8 @@ async def get_homepage(request: Request):
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <title>Web3 Research Co-Pilot</title>
         <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 24 24%22><path fill=%22%2300d4aa%22 d=%22M12 2L2 7v10c0 5.5 3.8 7.7 9 9 5.2-1.3 9-3.5 9-9V7l-10-5z%22/></svg>">
+        <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+        <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
         
         <style>
             :root {
@@ -208,11 +414,24 @@ async def get_homepage(request: Request):
                 --warning: #ffa726;
                 --error: #f44336;
             }
+            
+            [data-theme="light"] {
+                --background: #ffffff;
+                --surface: #f8f9fa;
+                --surface-elevated: #ffffff;
+                --text: #1a1a1a;
+                --text-secondary: #4a5568;
+                --text-muted: #718096;
+                --border: rgba(0, 0, 0, 0.08);
+                --border-focus: rgba(0, 102, 255, 0.3);
+                --shadow: rgba(0, 0, 0, 0.1);
+            }
 
             * {
                 margin: 0;
                 padding: 0;
                 box-sizing: border-box;
+                transition: background-color 0.3s ease, color 0.3s ease, border-color 0.3s ease;
             }
 
             body {
@@ -235,6 +454,36 @@ async def get_homepage(request: Request):
             .header {
                 text-align: center;
                 margin-bottom: 2.5rem;
+            }
+            .header-content {
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                max-width: 100%;
+            }
+            .header-text {
+                flex: 1;
+                text-align: center;
+            }
+            .theme-toggle {
+                background: var(--surface);
+                border: 1px solid var(--border);
+                border-radius: 8px;
+                padding: 0.75rem;
+                color: var(--text);
+                cursor: pointer;
+                transition: all 0.2s ease;
+                font-size: 1.1rem;
+                min-width: 44px;
+                height: 44px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+            }
+            .theme-toggle:hover {
+                background: var(--surface-elevated);
+                border-color: var(--primary);
+                transform: translateY(-1px);
             }
 
             .header h1 {
@@ -362,6 +611,61 @@ async def get_homepage(request: Request):
                 color: var(--text);
                 border-bottom-left-radius: 8px;
                 border: 1px solid var(--border);
+            }
+            .message-content h1, .message-content h2, .message-content h3, .message-content h4 {
+                color: var(--accent);
+                margin: 1rem 0 0.5rem 0;
+                font-weight: 600;
+            }
+            .message-content h1 { font-size: 1.25rem; }
+            .message-content h2 { font-size: 1.1rem; }
+            .message-content h3 { font-size: 1rem; }
+            .message-content h4 { font-size: 0.95rem; }
+            .message-content p {
+                margin: 0.75rem 0;
+                line-height: 1.6;
+            }
+            .message-content ul, .message-content ol {
+                margin: 0.75rem 0;
+                padding-left: 1.5rem;
+            }
+            .message-content li {
+                margin: 0.25rem 0;
+                line-height: 1.5;
+            }
+            .message-content strong {
+                color: var(--accent);
+                font-weight: 600;
+            }
+            .message-content em {
+                color: var(--text-secondary);
+                font-style: italic;
+            }
+            .message-content code {
+                background: rgba(0, 102, 255, 0.1);
+                border: 1px solid rgba(0, 102, 255, 0.2);
+                padding: 0.15rem 0.4rem;
+                border-radius: 4px;
+                font-family: 'SF Mono', Consolas, monospace;
+                font-size: 0.85rem;
+                color: var(--accent);
+            }
+            .message-content pre {
+                background: var(--background);
+                border: 1px solid var(--border);
+                border-radius: 8px;
+                padding: 1rem;
+                margin: 1rem 0;
+                overflow-x: auto;
+                font-family: 'SF Mono', Consolas, monospace;
+                font-size: 0.85rem;
+            }
+            .message-content blockquote {
+                border-left: 3px solid var(--accent);
+                padding-left: 1rem;
+                margin: 1rem 0;
+                color: var(--text-secondary);
+                font-style: italic;
             }
 
             .message-meta {
@@ -500,6 +804,15 @@ async def get_homepage(request: Request):
                 color: var(--text);
                 margin-bottom: 0.5rem;
                 font-size: 0.95rem;
+                display: flex;
+                align-items: center;
+                gap: 0.5rem;
+            }
+            .example-title i {
+                color: var(--primary);
+                font-size: 1rem;
+                width: 20px;
+                text-align: center;
             }
 
             .example-desc {
@@ -528,6 +841,52 @@ async def get_homepage(request: Request):
 
             @keyframes spin {
                 to { transform: rotate(360deg); }
+            }
+            .loading-indicator {
+                display: none;
+                background: var(--surface-elevated);
+                border: 1px solid var(--border);
+                border-radius: 12px;
+                padding: 1.5rem;
+                margin: 1rem 0;
+                text-align: center;
+                color: var(--text-secondary);
+            }
+            .loading-indicator.active {
+                display: block;
+            }
+            .loading-spinner {
+                display: inline-block;
+                width: 20px;
+                height: 20px;
+                border: 2px solid var(--border);
+                border-top-color: var(--primary);
+                border-radius: 50%;
+                animation: spin 1s linear infinite;
+                margin-right: 0.5rem;
+            }
+            .status-indicator {
+                position: fixed;
+                top: 20px;
+                right: 20px;
+                background: var(--surface);
+                border: 1px solid var(--border);
+                border-radius: 8px;
+                padding: 0.75rem 1rem;
+                font-size: 0.85rem;
+                color: var(--text-secondary);
+                opacity: 0;
+                transform: translateY(-10px);
+                transition: all 0.3s ease;
+                z-index: 1000;
+            }
+            .status-indicator.show {
+                opacity: 1;
+                transform: translateY(0);
+            }
+            .status-indicator.processing {
+                border-color: var(--primary);
+                background: linear-gradient(135deg, rgba(0, 102, 255, 0.05), rgba(0, 102, 255, 0.02));
             }
 
             .visualization-container {
@@ -559,6 +918,15 @@ async def get_homepage(request: Request):
             @media (max-width: 768px) {
                 .container {
                     padding: 1rem;
+                }
+                
+                .header-content {
+                    flex-direction: column;
+                    gap: 1rem;
+                }
+                
+                .header-text {
+                    text-align: center;
                 }
                 
                 .header h1 {
@@ -595,10 +963,21 @@ async def get_homepage(request: Request):
         </style>
     </head>
     <body>
+        <div id="statusIndicator" class="status-indicator">
+            <span id="statusText">Ready</span>
+        </div>
+        
         <div class="container">
             <div class="header">
-                <h1><span class="brand">Web3</span> Research Co-Pilot</h1>
-                <p>Professional cryptocurrency analysis and market intelligence</p>
+                <div class="header-content">
+                    <div class="header-text">
+                        <h1><span class="brand">Web3</span> Research Co-Pilot</h1>
+                        <p>Professional cryptocurrency analysis and market intelligence</p>
+                    </div>
+                    <button id="themeToggle" class="theme-toggle" title="Toggle theme">
+                        <i class="fas fa-moon"></i>
+                    </button>
+                </div>
             </div>
 
             <div id="status" class="status checking">
@@ -611,6 +990,10 @@ async def get_homepage(request: Request):
                         <h3>Welcome to Web3 Research Co-Pilot</h3>
                         <p>Ask about market trends, DeFi protocols, or blockchain analytics</p>
                     </div>
+                </div>
+                <div id="loadingIndicator" class="loading-indicator">
+                    <div class="loading-spinner"></div>
+                    <span id="loadingText">Processing your research query...</span>
                 </div>
                 <div class="input-area">
                     <div class="input-container">
@@ -628,20 +1011,28 @@ async def get_homepage(request: Request):
 
             <div class="examples">
                 <div class="example" onclick="setQuery('Analyze Bitcoin price trends and institutional adoption patterns')">
-                    <div class="example-title">Market Analysis</div>
-                    <div class="example-desc">Bitcoin trends, institutional flows, and market sentiment</div>
+                    <div class="example-title"><i class="fas fa-chart-line"></i> Market Analysis</div>
+                    <div class="example-desc">Bitcoin trends, institutional flows, and market sentiment analysis</div>
                 </div>
-                <div class="example" onclick="setQuery('Compare top DeFi protocols by TVL, yield, and risk metrics')">
-                    <div class="example-title">DeFi Intelligence</div>
-                    <div class="example-desc">Protocol comparison, yield analysis, and risk assessment</div>
+                <div class="example" onclick="setQuery('Compare top DeFi protocols by TVL, yield, and risk metrics across chains')">
+                    <div class="example-title"><i class="fas fa-coins"></i> DeFi Intelligence</div>
+                    <div class="example-desc">Protocol comparison, yield analysis, and cross-chain opportunities</div>
                 </div>
                 <div class="example" onclick="setQuery('Evaluate Ethereum Layer 2 scaling solutions and adoption metrics')">
-                    <div class="example-title">Layer 2 Research</div>
+                    <div class="example-title"><i class="fas fa-layer-group"></i> Layer 2 Research</div>
                     <div class="example-desc">Scaling solutions, transaction costs, and ecosystem growth</div>
                 </div>
-                <div class="example" onclick="setQuery('Identify optimal yield farming strategies across multiple chains')">
-                    <div class="example-title">Yield Optimization</div>
+                <div class="example" onclick="setQuery('Find optimal yield farming strategies with risk assessment')">
+                    <div class="example-title"><i class="fas fa-seedling"></i> Yield Optimization</div>
                     <div class="example-desc">Cross-chain opportunities, APY tracking, and risk analysis</div>
+                </div>
+                <div class="example" onclick="setQuery('Track whale movements and large Bitcoin transactions today')">
+                    <div class="example-title"><i class="fas fa-fish"></i> Whale Tracking</div>
+                    <div class="example-desc">Large transactions, wallet analysis, and market impact</div>
+                </div>
+                <div class="example" onclick="setQuery('Analyze gas fees and network congestion across blockchains')">
+                    <div class="example-title"><i class="fas fa-tachometer-alt"></i> Network Analytics</div>
+                    <div class="example-desc">Gas prices, network utilization, and cost comparisons</div>
                 </div>
             </div>
         </div>
@@ -684,23 +1075,28 @@ async def get_homepage(request: Request):
             async function sendQuery() {
                 const input = document.getElementById('queryInput');
                 const sendBtn = document.getElementById('sendBtn');
+                const loadingIndicator = document.getElementById('loadingIndicator');
+                const statusIndicator = document.getElementById('statusIndicator');
+                const statusText = document.getElementById('statusText');
                 const query = input.value.trim();
 
                 if (!query) {
-                    console.log('❌ Empty query, not sending');
+                    showStatus('Please enter a research query', 'warning');
                     return;
                 }
 
-                console.log('📤 Sending query:', query);
+                console.log('Sending research query');
                 addMessage('user', query);
                 input.value = '';
 
-                // Update button state
+                // Update UI states
                 sendBtn.disabled = true;
                 sendBtn.innerHTML = '<span class="loading">Processing</span>';
+                loadingIndicator.classList.add('active');
+                showStatus('Processing research query...', 'processing');
 
                 try {
-                    console.log('🔄 Making API request...');
+                    console.log('Making API request...');
                     const requestStart = Date.now();
                     
                     const response = await fetch('/query', {
@@ -710,36 +1106,38 @@ async def get_homepage(request: Request):
                     });
 
                     const requestTime = Date.now() - requestStart;
-                    console.log(`⏱️ Request completed in ${requestTime}ms`);
+                    console.log(`Request completed in ${requestTime}ms`);
 
                     if (!response.ok) {
-                        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                        throw new Error(`Request failed with status ${response.status}`);
                     }
 
                     const result = await response.json();
-                    console.log('📥 Response received:', {
-                        success: result.success,
-                        responseLength: result.response?.length || 0,
-                        sources: result.sources?.length || 0,
-                        visualizations: result.visualizations?.length || 0
-                    });
+                    console.log('Response received successfully');
 
                     if (result.success) {
                         addMessage('assistant', result.response, result.sources, result.visualizations);
-                        console.log('✅ Message added successfully');
+                        showStatus('Research complete', 'success');
+                        console.log('Analysis completed successfully');
                     } else {
-                        console.error('❌ Query failed:', result.error);
-                        addMessage('assistant', result.response || 'Analysis failed. Please try again.', [], []);
+                        console.log('Analysis request failed');
+                        addMessage('assistant', result.response || 'Analysis temporarily unavailable. Please try again.', [], []);
+                        showStatus('Request failed', 'error');
                     }
                 } catch (error) {
-                    console.error('💥 Request error:', error);
-                    addMessage('assistant', `Connection error: ${error.message}. Please check your network and try again.`);
+                    console.error('Request error occurred');
+                    addMessage('assistant', 'Connection error. Please check your network and try again.');
+                    showStatus('Connection error', 'error');
                 } finally {
-                    // Reset button state
+                    // Reset UI states
                     sendBtn.disabled = false;
                     sendBtn.innerHTML = 'Research';
+                    loadingIndicator.classList.remove('active');
                     input.focus();
-                    console.log('🔄 Button state reset');
+                    console.log('Request completed');
+                    
+                    // Hide status after delay
+                    setTimeout(() => hideStatus(), 3000);
                 }
             }
 
@@ -766,14 +1164,36 @@ async def get_homepage(request: Request):
 
                 let visualizationHtml = '';
                 if (visualizations && visualizations.length > 0) {
-                    visualizationHtml = visualizations.map(viz => 
-                        `<div class="visualization-container">${viz}</div>`
-                    ).join('');
+                    console.log('Processing visualizations:', visualizations.length);
+                    visualizationHtml = visualizations.map((viz, index) => {
+                        console.log(`Visualization ${index}:`, viz.substring(0, 100));
+                        return `<div class="visualization-container" id="viz-${Date.now()}-${index}">${viz}</div>`;
+                    }).join('');
+                }
+
+                // Format content based on sender
+                let formattedContent = content;
+                if (sender === 'assistant') {
+                    // Convert markdown to HTML for assistant responses
+                    try {
+                        formattedContent = marked.parse(content);
+                    } catch (error) {
+                        // Fallback to basic formatting if marked.js fails
+                        console.warn('Markdown parsing failed, using fallback:', error);
+                        formattedContent = content
+                            .replace(/\\n/g, '<br>')
+                            .replace(/\\*\\*(.*?)\\*\\*/g, '<strong>$1</strong>')
+                            .replace(/\\*(.*?)\\*/g, '<em>$1</em>')
+                            .replace(/`(.*?)`/g, '<code>$1</code>');
+                    }
+                } else {
+                    // Simple line breaks for user messages
+                    formattedContent = content.replace(/\\n/g, '<br>');
                 }
 
                 messageDiv.innerHTML = `
                     <div class="message-content">
-                        ${content.replace(/\n/g, '<br>')}
+                        ${formattedContent}
                         ${sourcesHtml}
                     </div>
                     ${visualizationHtml}
@@ -783,6 +1203,29 @@ async def get_homepage(request: Request):
                 messagesDiv.appendChild(messageDiv);
                 messagesDiv.scrollTop = messagesDiv.scrollHeight;
 
+                // Execute any scripts in the visualizations after DOM insertion
+                if (visualizations && visualizations.length > 0) {
+                    console.log('Executing visualization scripts...');
+                    setTimeout(() => {
+                        const scripts = messageDiv.querySelectorAll('script');
+                        console.log(`Found ${scripts.length} scripts to execute`);
+                        
+                        scripts.forEach((script, index) => {
+                            console.log(`Executing script ${index}:`, script.textContent.substring(0, 200) + '...');
+                            try {
+                                // Execute script in global context using Function constructor
+                                const scriptFunction = new Function(script.textContent);
+                                scriptFunction.call(window);
+                                console.log(`Script ${index} executed successfully`);
+                            } catch (error) {
+                                console.error(`Script ${index} execution error:`, error);
+                                console.error(`Script content preview:`, script.textContent.substring(0, 500));
+                            }
+                        });
+                        console.log('All visualization scripts executed');
+                    }, 100);
+                }
+
                 chatHistory.push({ role: sender, content });
                 if (chatHistory.length > 20) chatHistory = chatHistory.slice(-20);
             }
@@ -791,16 +1234,69 @@ async def get_homepage(request: Request):
                 document.getElementById('queryInput').value = query;
                 setTimeout(() => sendQuery(), 100);
             }
+            
+            // Status management functions
+            function showStatus(message, type = 'info') {
+                const statusIndicator = document.getElementById('statusIndicator');
+                const statusText = document.getElementById('statusText');
+                
+                statusText.textContent = message;
+                statusIndicator.className = `status-indicator show ${type}`;
+            }
+            
+            function hideStatus() {
+                const statusIndicator = document.getElementById('statusIndicator');
+                statusIndicator.classList.remove('show');
+            }
+
+            // Theme toggle functionality
+            function toggleTheme() {
+                const currentTheme = document.documentElement.getAttribute('data-theme');
+                const newTheme = currentTheme === 'light' ? 'dark' : 'light';
+                const themeIcon = document.querySelector('#themeToggle i');
+                
+                document.documentElement.setAttribute('data-theme', newTheme);
+                localStorage.setItem('theme', newTheme);
+                
+                // Update icon
+                if (newTheme === 'light') {
+                    themeIcon.className = 'fas fa-sun';
+                } else {
+                    themeIcon.className = 'fas fa-moon';
+                }
+            }
+            
+            // Initialize theme
+            function initializeTheme() {
+                const savedTheme = localStorage.getItem('theme') || 'dark';
+                const themeIcon = document.querySelector('#themeToggle i');
+                
+                document.documentElement.setAttribute('data-theme', savedTheme);
+                
+                if (savedTheme === 'light') {
+                    themeIcon.className = 'fas fa-sun';
+                } else {
+                    themeIcon.className = 'fas fa-moon';
+                }
+            }
 
             // Event listeners
             document.getElementById('queryInput').addEventListener('keypress', (e) => {
                 if (e.key === 'Enter') sendQuery();
             });
 
-            document.getElementById('sendBtn').addEventListener('click', sendQuery);
+            document.getElementById('sendBtn').addEventListener('click', (e) => {
+                console.log('Research button clicked');
+                e.preventDefault();
+                sendQuery();
+            });
+            
+            document.getElementById('themeToggle').addEventListener('click', toggleTheme);
 
             // Initialize
             document.addEventListener('DOMContentLoaded', () => {
+                console.log('Application initialized');
+                initializeTheme();
                 checkStatus();
                 document.getElementById('queryInput').focus();
             });
@@ -825,10 +1321,10 @@ async def get_status():
 
 @app.post("/query", response_model=QueryResponse)
 async def process_query(request: QueryRequest):
-    """Process research query with detailed logging"""
-    # Log incoming request
-    logger.info(f"📥 Query received: {request.query[:100]}...")
-    logger.info(f"📊 Chat history length: {len(request.chat_history) if request.chat_history else 0}")
+    """Process research query with sanitized logging"""
+    # Log incoming request without exposing sensitive data
+    query_preview = request.query[:50] + "..." if len(request.query) > 50 else request.query
+    logger.info(f"Query received: {query_preview}")
     
     start_time = datetime.now()
     
@@ -836,28 +1332,25 @@ async def process_query(request: QueryRequest):
         # Process the query
         result = await service.process_query(request.query)
         
-        # Log result
+        # Log result without sensitive details
         processing_time = (datetime.now() - start_time).total_seconds()
-        logger.info(f"✅ Query processed in {processing_time:.2f}s - Success: {result.success}")
+        logger.info(f"Query processed in {processing_time:.2f}s - Success: {result.success}")
         
         if result.success:
-            logger.info(f"📤 Response length: {len(result.response)} chars")
-            logger.info(f"🔗 Sources: {result.sources}")
-            if result.visualizations:
-                logger.info(f"📈 Visualizations: {len(result.visualizations)} charts")
+            logger.info(f"Response generated: {len(result.response)} characters")
         else:
-            logger.error(f"❌ Query failed: {result.error}")
+            logger.info("Query processing failed")
         
         return result
         
     except Exception as e:
         processing_time = (datetime.now() - start_time).total_seconds()
-        logger.error(f"💥 Query processing exception after {processing_time:.2f}s: {e}")
+        logger.error(f"Query processing error after {processing_time:.2f}s")
         
         return QueryResponse(
             success=False,
-            response=f"System error: {str(e)}",
-            error=str(e)
+            response="We're experiencing technical difficulties. Please try again in a moment.",
+            error="System temporarily unavailable"
         )
 
 @app.get("/health")
