@@ -12,6 +12,7 @@ class EtherscanTool(BaseWeb3Tool):
     Useful for: transaction analysis, address information, gas prices, token data.
     Input: Ethereum address, transaction hash, or general blockchain query."""
     args_schema: type[BaseModel] = Web3ToolInput
+    enabled: bool = True  # Add enabled as a Pydantic field
     
     _base_url: str = PrivateAttr(default="https://api.etherscan.io/api")
     _api_key: Optional[str] = PrivateAttr(default=None)

@@ -10,3 +10,7 @@ google-generativeai
 asyncio-throttle
 fastapi
 uvicorn
+plotly
+pandas
+numpy
+jinja2
