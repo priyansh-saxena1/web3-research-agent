@@ -1,6 +1,69 @@
-# Web3 Research Co-Pilot
+# 🚀 Web3 Research Co-Pilot
 
-AI-powered cryptocurrency research assistant built with LangChain and Gradio.
+AI-powered cryptocurrency research assistant with comprehensive Web3 data analysis capabilities.
+
+## Features
+
+- **LangChain AI Agent**: Advanced query processing with Google Gemini
+- **Real-time Data**: CoinGecko, DeFiLlama, Etherscan integration  
+- **Interactive UI**: Gradio-based chat interface with visualizations
+- **AIRAA Integration**: Research data forwarding to external platforms
+- **Production Ready**: Comprehensive error handling and async architecture
+
+## Quick Start
+
+### 1. Environment Setup
+
+```bash
+export GEMINI_API_KEY="your_gemini_api_key"
+export ETHERSCAN_API_KEY="your_etherscan_key"  # Optional
+export COINGECKO_API_KEY="your_coingecko_key"  # Optional
+```
+
+### 2. Installation
+
+```bash
+pip install -r requirements.txt
+```
+
+### 3. Launch
+
+```bash
+python launch.py
+```
+
+## API Keys
+
+- **GEMINI_API_KEY** (Required): [Get from Google AI Studio](https://makersuite.google.com/app/apikey)
+- **ETHERSCAN_API_KEY** (Optional): [Get from Etherscan.io](https://etherscan.io/apis)
+- **COINGECKO_API_KEY** (Optional): [Get from CoinGecko](https://www.coingecko.com/en/api/pricing)
+
+## Architecture
+
+```
+├── app.py                 # Main Gradio application
+├── src/
+│   ├── agent/            # LangChain AI agent
+│   ├── tools/            # Web3 data tools
+│   ├── api/              # External integrations
+│   └── utils/            # Configuration & utilities
+└── launch.py             # Launch script
+```
+
+## Usage Examples
+
+- "What is the current price of Bitcoin?"
+- "Analyze Ethereum's DeFi ecosystem"
+- "Show me gas prices and network stats"
+- "Research the top DeFi protocols by TVL"
+
+## Deployment
+
+Configured for HuggingFace Spaces with automatic dependency management.
+
+---
+
+**Built with minimal, expert-level code and production-grade error handling.**
 
 ## Features
 

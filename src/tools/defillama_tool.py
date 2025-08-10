@@ -1,6 +1,9 @@
 from typing import Dict, Any, Optional
 from pydantic import BaseModel, PrivateAttr
 from src.tools.base_tool import BaseWeb3Tool, Web3ToolInput
+from src.utils.logger import get_logger
+
+logger = get_logger(__name__)
 
 class DeFiLlamaTool(BaseWeb3Tool):
     name: str = "defillama_data"
@@ -28,28 +31,63 @@ class DeFiLlamaTool(BaseWeb3Tool):
                 return await self._get_top_protocols()
                 
         except Exception as e:
-            return f"DeFiLlama error: {str(e)}"
+            logger.error(f"DeFiLlama error: {e}")
+            return f"⚠️ DeFiLlama service temporarily unavailable: {str(e)}"
     
     async def _get_top_protocols(self) -> str:
-        data = await self.make_request(f"{self.base_url}/protocols")
-        
-        if not data:
-            return "No DeFi protocol data available"
-        
-        top_protocols = sorted(data, key=lambda x: x.get("tvl", 0), reverse=True)[:10]
-        
-        result = "🏦 **Top DeFi Protocols by TVL:**\n\n"
-        
-        for i, protocol in enumerate(top_protocols, 1):
-            name = protocol.get("name", "Unknown")
-            tvl = protocol.get("tvl", 0)
-            change = protocol.get("change_1d", 0)
-            chain = protocol.get("chain", "Multi-chain")
+        try:
+            data = await self.make_request(f"{self._base_url}/protocols")
             
-            emoji = "📈" if change >= 0 else "📉"
-            result += f"{i}. **{name}** ({chain}): ${tvl/1e9:.2f}B TVL {emoji} ({change:+.2f}%)\n"
-        
-        return result
+            if not data or not isinstance(data, list):
+                return "⚠️ DeFi protocol data temporarily unavailable"
+            
+            if len(data) == 0:
+                return "❌ No DeFi protocols found"
+            
+            # Filter and validate protocols
+            valid_protocols = []
+            for protocol in data:
+                try:
+                    tvl = protocol.get("tvl", 0)
+                    if tvl is not None and tvl > 0:
+                        valid_protocols.append(protocol)
+                except (TypeError, ValueError):
+                    continue
+            
+            if not valid_protocols:
+                return "⚠️ No valid protocol data available"
+            
+            # Sort by TVL and take top 10
+            top_protocols = sorted(valid_protocols, key=lambda x: x.get("tvl", 0), reverse=True)[:10]
+            
+            result = "🏦 **Top DeFi Protocols by TVL:**\n\n"
+            
+            for i, protocol in enumerate(top_protocols, 1):
+                try:
+                    name = protocol.get("name", "Unknown")
+                    tvl = protocol.get("tvl", 0)
+                    change = protocol.get("change_1d", 0)
+                    chain = protocol.get("chain", "Multi-chain")
+                    
+                    # Handle edge cases
+                    if tvl <= 0:
+                        continue
+                    
+                    emoji = "📈" if change >= 0 else "📉"
+                    tvl_formatted = f"${tvl/1e9:.2f}B" if tvl >= 1e9 else f"${tvl/1e6:.1f}M"
+                    change_formatted = f"({change:+.2f}%)" if change is not None else "(N/A)"
+                    
+                    result += f"{i}. **{name}** ({chain}): {tvl_formatted} TVL {emoji} {change_formatted}\n"
+                    
+                except (TypeError, KeyError, ValueError) as e:
+                    logger.warning(f"Skipping invalid protocol data: {e}")
+                    continue
+            
+            return result if len(result.split('\n')) > 3 else "⚠️ Unable to format protocol data properly"
+            
+        except Exception as e:
+            logger.error(f"Top protocols error: {e}")
+            return "⚠️ DeFi protocol data temporarily unavailable"
     
     async def _get_tvl_overview(self) -> str:
         try:

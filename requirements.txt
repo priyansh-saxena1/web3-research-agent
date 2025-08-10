@@ -1,14 +1,12 @@
 langchain
 langchain-google-genai
 langchain-community
-gradio
 aiohttp
 tenacity
-plotly
-pandas
-numpy
 pydantic
 python-dotenv
 diskcache
 google-generativeai
 asyncio-throttle
+fastapi
+uvicorn

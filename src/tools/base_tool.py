@@ -4,8 +4,11 @@ from langchain.tools import BaseTool
 from pydantic import BaseModel, Field, PrivateAttr
 import asyncio
 import aiohttp
+import hashlib
+import json
 from tenacity import retry, stop_after_attempt, wait_exponential
 from src.utils.logger import get_logger
+from src.utils.cache_manager import cache_manager
 
 logger = get_logger(__name__)
 
@@ -32,11 +35,25 @@ class BaseWeb3Tool(BaseTool, ABC):
     
     @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=8))
     async def make_request(self, url: str, params: Dict[str, Any] = None) -> Dict[str, Any]:
+        # Create cache key
+        cache_key = self._create_cache_key(url, params or {})
+        
+        # Check cache first
+        cached_result = cache_manager.get(cache_key)
+        if cached_result is not None:
+            logger.debug(f"Cache hit for {url}")
+            return cached_result
+        
+        logger.debug(f"Cache miss for {url}")
         session = await self.get_session()
+        
         try:
             async with session.get(url, params=params or {}) as response:
                 if response.status == 200:
-                    return await response.json()
+                    result = await response.json()
+                    # Cache successful responses for 5 minutes
+                    cache_manager.set(cache_key, result, ttl=300)
+                    return result
                 elif response.status == 429:
                     await asyncio.sleep(2)
                     raise aiohttp.ClientResponseError(
@@ -50,6 +67,11 @@ class BaseWeb3Tool(BaseTool, ABC):
             logger.error(f"Request failed: {e}")
             raise
     
+    def _create_cache_key(self, url: str, params: Dict[str, Any]) -> str:
+        """Create a unique cache key from URL and parameters"""
+        key_data = f"{url}:{json.dumps(params, sort_keys=True)}"
+        return hashlib.md5(key_data.encode()).hexdigest()[:16]
+    
     def _run(self, query: str, filters: Optional[Dict[str, Any]] = None) -> str:
         return asyncio.run(self._arun(query, filters))
     
@@ -60,5 +82,4 @@ class BaseWeb3Tool(BaseTool, ABC):
     async def cleanup(self):
         if self._session:
             await self._session.close()
-        if self.session:
-            await self.session.close()
+            self._session = None
