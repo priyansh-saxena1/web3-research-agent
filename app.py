@@ -1220,24 +1220,27 @@ async def get_homepage(request: Request):
                     
                     const statusDiv = document.getElementById('status');
                     
-                    if (status.enabled && status.gemini_configured) {
-                        console.log('✅ System is fully operational');
-                        statusDiv.className = 'status online';
-                        statusDiv.innerHTML = `
-                            <span>Research systems online</span>
-                            <div style="margin-top: 0.5rem; font-size: 0.85rem; opacity: 0.8;">
-                                Tools: ${status.tools_available.join(' • ')}
-                            </div>
-                        `;
-                    } else if (status.enabled) {
-                        console.log('⚠️ System is in limited mode');
-                        statusDiv.className = 'status offline';
-                        statusDiv.innerHTML = `
-                            <span>Limited mode - Configure GEMINI_API_KEY for full functionality</span>
-                            <div style="margin-top: 0.5rem; font-size: 0.85rem; opacity: 0.8;">
-                                Available: ${status.tools_available.join(' • ')}
-                            </div>
-                        `;
+                    // Check if system is operational (either fully enabled or in limited mode)
+                    if (status.enabled) {
+                        if (status.gemini_configured) {
+                            console.log('✅ System is fully operational');
+                            statusDiv.className = 'status online';
+                            statusDiv.innerHTML = `
+                                <span>Research systems online</span>
+                                <div style="margin-top: 0.5rem; font-size: 0.85rem; opacity: 0.8;">
+                                    Tools: ${status.tools_available.join(' • ')}
+                                </div>
+                            `;
+                        } else {
+                            console.log('⚠️ System is in limited mode');
+                            statusDiv.className = 'status offline';
+                            statusDiv.innerHTML = `
+                                <span>Limited mode - Configure GEMINI_API_KEY for full functionality</span>
+                                <div style="margin-top: 0.5rem; font-size: 0.85rem; opacity: 0.8;">
+                                    Available: ${status.tools_available.join(' • ')}
+                                </div>
+                            `;
+                        }
                     } else {
                         console.log('❌ System is disabled');
                         statusDiv.className = 'status offline';
@@ -1529,13 +1532,21 @@ async def get_homepage(request: Request):
                 console.log('📍 Current URL:', window.location.href);
                 console.log('🌐 User Agent:', navigator.userAgent.substring(0, 100));
                 
+                // Test basic functionality
+                const statusDiv = document.getElementById('status');
+                console.log('📋 Status div found:', !!statusDiv);
+                
                 initializeTheme();
                 
-                // Initial status check with delay to ensure server is ready
+                // Immediate status check for debugging
+                console.log('🔍 Starting immediate status check...');
+                checkStatus();
+                
+                // Also do a delayed check
                 setTimeout(() => {
-                    console.log('🔍 Starting status check...');
+                    console.log('🔍 Starting delayed status check...');
                     checkStatus();
-                }, 1000);
+                }, 2000);
                 
                 document.getElementById('queryInput').focus();
                 console.log('✅ Application initialization complete');
