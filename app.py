@@ -1234,8 +1234,12 @@ async def get_homepage(request: Request):
                             .replace(/`(.*?)`/g, '<code>$1</code>');
                     }
                 } else {
-                    // Simple line breaks for user messages
-                    formattedContent = content.replace(/\\n/g, '<br>');
+                    // Apply markdown parsing to user messages too
+                    try {
+                        formattedContent = marked.parse(content);
+                    } catch (error) {
+                        formattedContent = content.replace(/\\n/g, '<br>');
+                    }
                 }
 
                 messageDiv.innerHTML = `
