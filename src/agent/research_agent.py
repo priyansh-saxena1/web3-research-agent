@@ -10,17 +10,24 @@ from src.tools.coingecko_tool import CoinGeckoTool
 from src.tools.defillama_tool import DeFiLlamaTool
 from src.tools.etherscan_tool import EtherscanTool
 from src.agent.query_planner import QueryPlanner
-from src.config import config
+from src.utils.config import config
 from src.utils.logger import get_logger
 
 logger = get_logger(__name__)
 
 class Web3ResearchAgent:
     def __init__(self):
+        self.llm = None
+        self.tools = []
+        self.agent = None
+        self.executor = None
+        self.enabled = False
+        
+        if not config.GEMINI_API_KEY:
+            logger.warning("GEMINI_API_KEY not configured - AI agent disabled")
+            return
+        
         try:
-            if not config.GEMINI_API_KEY:
-                raise ValueError("GEMINI_API_KEY not configured")
-            
             self.llm = ChatGoogleGenerativeAI(
                 model="gemini-1.5-flash",
                 google_api_key=config.GEMINI_API_KEY,
@@ -28,7 +35,7 @@ class Web3ResearchAgent:
                 max_tokens=2048
             )
             
-            self.tools = [CoinGeckoTool(), DeFiLlamaTool(), EtherscanTool()]
+            self.tools = self._initialize_tools()
             self.query_planner = QueryPlanner(self.llm)
             self.memory = ConversationBufferWindowMemory(
                 memory_key="chat_history", return_messages=True, k=10
@@ -39,9 +46,35 @@ class Web3ResearchAgent:
                 agent=self.agent, tools=self.tools, memory=self.memory,
                 verbose=False, max_iterations=5, handle_parsing_errors=True
             )
+            self.enabled = True
+            logger.info("Web3ResearchAgent initialized successfully")
+            
         except Exception as e:
             logger.error(f"Agent init failed: {e}")
-            raise
+            self.enabled = False
+    
+    def _initialize_tools(self):
+        tools = []
+        
+        try:
+            tools.append(CoinGeckoTool())
+            logger.info("CoinGecko tool initialized")
+        except Exception as e:
+            logger.warning(f"CoinGecko tool failed: {e}")
+        
+        try:
+            tools.append(DeFiLlamaTool())
+            logger.info("DeFiLlama tool initialized")
+        except Exception as e:
+            logger.warning(f"DeFiLlama tool failed: {e}")
+        
+        try:
+            tools.append(EtherscanTool())
+            logger.info("Etherscan tool initialized")
+        except Exception as e:
+            logger.warning(f"Etherscan tool failed: {e}")
+        
+        return tools
     
     def _create_agent(self):
         prompt = ChatPromptTemplate.from_messages([
@@ -57,6 +90,16 @@ class Web3ResearchAgent:
         return create_tool_calling_agent(self.llm, self.tools, prompt)
     
     async def research_query(self, query: str) -> Dict[str, Any]:
+        if not self.enabled:
+            return {
+                "success": False,
+                "query": query,
+                "error": "AI agent not configured. Please set GEMINI_API_KEY environment variable.",
+                "result": "❌ **Service Unavailable**\n\nThe AI research agent requires a GEMINI_API_KEY to function.\n\nPlease:\n1. Get a free API key from [Google AI Studio](https://makersuite.google.com/app/apikey)\n2. Set environment variable: `export GEMINI_API_KEY='your_key'`\n3. Restart the application",
+                "sources": [],
+                "metadata": {"timestamp": datetime.now().isoformat()}
+            }
+        
         try:
             logger.info(f"Processing: {query}")
             
@@ -92,6 +135,8 @@ class Web3ResearchAgent:
                 "success": False,
                 "query": query,
                 "error": str(e),
+                "result": f"❌ **Research Error**: {str(e)}\n\nPlease try a different query or check your API configuration.",
+                "sources": [],
                 "metadata": {"timestamp": datetime.now().isoformat()}
             }
     
