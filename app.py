@@ -394,6 +394,9 @@ async def get_homepage(request: Request):
         <title>Web3 Research Co-Pilot</title>
         <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 24 24%22><path fill=%22%2300d4aa%22 d=%22M12 2L2 7v10c0 5.5 3.8 7.7 9 9 5.2-1.3 9-3.5 9-9V7l-10-5z%22/></svg>">
         <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+        <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-core.min.js"></script>
+        <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/plugins/autoloader/prism-autoloader.min.js"></script>
+        <link href="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/themes/prism-tomorrow.min.css" rel="stylesheet">
         <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
         
         <style>
@@ -612,60 +615,197 @@ async def get_homepage(request: Request):
                 border-bottom-left-radius: 8px;
                 border: 1px solid var(--border);
             }
-            .message-content h1, .message-content h2, .message-content h3, .message-content h4 {
+            /* Enhanced text formatting for better UX */
+            .message-content h1, .message-content h2, .message-content h3, .message-content h4, .message-content h5, .message-content h6 {
                 color: var(--accent);
-                margin: 1rem 0 0.5rem 0;
+                margin: 1.5rem 0 0.75rem 0;
                 font-weight: 600;
+                line-height: 1.3;
+                letter-spacing: -0.025em;
             }
-            .message-content h1 { font-size: 1.25rem; }
-            .message-content h2 { font-size: 1.1rem; }
-            .message-content h3 { font-size: 1rem; }
-            .message-content h4 { font-size: 0.95rem; }
+            .message-content h1 { 
+                font-size: 1.35rem; 
+                border-bottom: 2px solid var(--accent);
+                padding-bottom: 0.5rem;
+            }
+            .message-content h2 { 
+                font-size: 1.2rem; 
+                border-bottom: 1px solid var(--border);
+                padding-bottom: 0.25rem;
+            }
+            .message-content h3 { font-size: 1.1rem; }
+            .message-content h4 { font-size: 1rem; }
+            .message-content h5 { font-size: 0.95rem; }
+            .message-content h6 { font-size: 0.9rem; opacity: 0.9; }
+            
             .message-content p {
-                margin: 0.75rem 0;
-                line-height: 1.6;
+                margin: 0.875rem 0;
+                line-height: 1.65;
+                text-align: justify;
+                text-justify: inter-word;
             }
+            
             .message-content ul, .message-content ol {
-                margin: 0.75rem 0;
-                padding-left: 1.5rem;
+                margin: 1rem 0;
+                padding-left: 1.75rem;
             }
+            
+            .message-content ul {
+                list-style-type: none;
+            }
+            
+            .message-content ul li::before {
+                content: '•';
+                color: var(--accent);
+                font-weight: bold;
+                position: absolute;
+                margin-left: -1.25rem;
+            }
+            
+            .message-content ol li {
+                list-style-type: decimal;
+                color: var(--text);
+            }
+            
             .message-content li {
-                margin: 0.25rem 0;
-                line-height: 1.5;
+                margin: 0.5rem 0;
+                line-height: 1.6;
+                position: relative;
             }
-            .message-content strong {
+            
+            .message-content strong, .message-content b {
                 color: var(--accent);
-                font-weight: 600;
+                font-weight: 650;
+                text-shadow: 0 0 2px rgba(0, 212, 170, 0.3);
             }
-            .message-content em {
+            
+            .message-content em, .message-content i {
                 color: var(--text-secondary);
                 font-style: italic;
+                font-weight: 450;
             }
+            
             .message-content code {
-                background: rgba(0, 102, 255, 0.1);
-                border: 1px solid rgba(0, 102, 255, 0.2);
-                padding: 0.15rem 0.4rem;
-                border-radius: 4px;
-                font-family: 'SF Mono', Consolas, monospace;
-                font-size: 0.85rem;
+                background: linear-gradient(135deg, rgba(0, 102, 255, 0.12), rgba(0, 212, 170, 0.08));
+                border: 1px solid rgba(0, 102, 255, 0.25);
+                padding: 0.2rem 0.5rem;
+                border-radius: 6px;
+                font-family: 'SF Mono', 'Monaco', 'Cascadia Code', 'Roboto Mono', Consolas, monospace;
+                font-size: 0.875rem;
                 color: var(--accent);
+                font-weight: 500;
+                letter-spacing: 0.025em;
+                box-shadow: 0 1px 3px rgba(0, 102, 255, 0.1);
             }
+            
             .message-content pre {
-                background: var(--background);
+                background: linear-gradient(135deg, var(--background), var(--surface));
                 border: 1px solid var(--border);
-                border-radius: 8px;
-                padding: 1rem;
-                margin: 1rem 0;
+                border-radius: 10px;
+                padding: 1.25rem;
+                margin: 1.5rem 0;
                 overflow-x: auto;
-                font-family: 'SF Mono', Consolas, monospace;
-                font-size: 0.85rem;
+                font-family: 'SF Mono', 'Monaco', 'Cascadia Code', 'Roboto Mono', Consolas, monospace;
+                font-size: 0.875rem;
+                line-height: 1.5;
+                box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+                position: relative;
             }
+            
+            .message-content pre code {
+                background: none;
+                border: none;
+                padding: 0;
+                border-radius: 0;
+                box-shadow: none;
+                color: var(--text);
+            }
+            
             .message-content blockquote {
-                border-left: 3px solid var(--accent);
-                padding-left: 1rem;
-                margin: 1rem 0;
+                border-left: 4px solid var(--accent);
+                background: rgba(0, 212, 170, 0.05);
+                padding: 1rem 1.5rem;
+                margin: 1.5rem 0;
                 color: var(--text-secondary);
                 font-style: italic;
+                border-radius: 0 8px 8px 0;
+                position: relative;
+            }
+            
+            .message-content blockquote::before {
+                content: '"';
+                font-size: 3rem;
+                color: var(--accent);
+                position: absolute;
+                top: -0.5rem;
+                left: 0.5rem;
+                opacity: 0.3;
+                font-family: Georgia, serif;
+            }
+            
+            .message-content a {
+                color: var(--primary);
+                text-decoration: none;
+                font-weight: 500;
+                border-bottom: 1px solid transparent;
+                transition: all 0.2s ease;
+            }
+            
+            .message-content a:hover {
+                color: var(--accent);
+                border-bottom-color: var(--accent);
+            }
+            
+            .message-content table {
+                width: 100%;
+                border-collapse: collapse;
+                margin: 1.5rem 0;
+                background: var(--surface-elevated);
+                border-radius: 8px;
+                overflow: hidden;
+                box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+            }
+            
+            .message-content th, .message-content td {
+                padding: 0.875rem;
+                text-align: left;
+                border-bottom: 1px solid var(--border);
+            }
+            
+            .message-content th {
+                background: var(--surface);
+                font-weight: 600;
+                color: var(--accent);
+            }
+            
+            .message-content tr:last-child td {
+                border-bottom: none;
+            }
+            
+            .message-content hr {
+                border: none;
+                height: 2px;
+                background: linear-gradient(90deg, transparent, var(--border), transparent);
+                margin: 2rem 0;
+            }
+            
+            /* Number formatting for crypto values */
+            .message-content .crypto-value {
+                font-family: 'SF Mono', monospace;
+                font-weight: 600;
+                color: var(--accent);
+                background: rgba(0, 212, 170, 0.1);
+                padding: 0.1rem 0.3rem;
+                border-radius: 4px;
+            }
+            
+            /* Highlight important information */
+            .message-content .highlight {
+                background: linear-gradient(135deg, rgba(0, 102, 255, 0.15), rgba(0, 212, 170, 0.1));
+                padding: 0.75rem 1rem;
+                border-radius: 8px;
+                border-left: 3px solid var(--accent);
+                margin: 1rem 0;
             }
 
             .message-meta {
@@ -1038,6 +1178,23 @@ async def get_homepage(request: Request):
         </div>
 
         <script>
+            // Configure marked.js for better markdown rendering
+            if (typeof marked !== 'undefined') {
+                marked.setOptions({
+                    breaks: true,
+                    gfm: true,
+                    highlight: function(code, lang) {
+                        if (typeof Prism !== 'undefined' && lang && Prism.languages[lang]) {
+                            return Prism.highlight(code, Prism.languages[lang], lang);
+                        }
+                        return code;
+                    },
+                    sanitize: false,
+                    smartLists: true,
+                    smartypants: true
+                });
+            }
+
             let chatHistory = [];
             let messageCount = 0;
 
@@ -1171,24 +1328,64 @@ async def get_homepage(request: Request):
                     }).join('');
                 }
 
-                // Format content based on sender
+                // Format content based on sender with enhanced markdown processing
                 let formattedContent = content;
                 if (sender === 'assistant') {
-                    // Convert markdown to HTML for assistant responses
+                    // Enhanced markdown to HTML conversion for assistant responses
                     try {
-                        formattedContent = marked.parse(content);
+                        // Use marked.js if available
+                        if (typeof marked !== 'undefined') {
+                            formattedContent = marked.parse(content);
+                        } else {
+                            throw new Error('marked.js not available');
+                        }
                     } catch (error) {
-                        // Fallback to basic formatting if marked.js fails
-                        console.warn('Markdown parsing failed, using fallback:', error);
+                        // Enhanced fallback formatting if marked.js fails
+                        console.warn('Markdown parsing failed, using enhanced fallback:', error);
                         formattedContent = content
-                            .replace(/\\n/g, '<br>')
+                            // Convert line breaks
+                            .replace(/\n\n/g, '</p><p>')
+                            .replace(/\n/g, '<br>')
+                            // Headers
+                            .replace(/^### (.*$)/gm, '<h3>$1</h3>')
+                            .replace(/^## (.*$)/gm, '<h2>$1</h2>')
+                            .replace(/^# (.*$)/gm, '<h1>$1</h1>')
+                            // Bold and italic
                             .replace(/\\*\\*(.*?)\\*\\*/g, '<strong>$1</strong>')
                             .replace(/\\*(.*?)\\*/g, '<em>$1</em>')
-                            .replace(/`(.*?)`/g, '<code>$1</code>');
+                            // Code blocks
+                            .replace(/```([\\s\\S]*?)```/g, '<pre><code>$1</code></pre>')
+                            .replace(/`(.*?)`/g, '<code>$1</code>')
+                            // Lists
+                            .replace(/^\\* (.*$)/gm, '<li>$1</li>')
+                            .replace(/^\\- (.*$)/gm, '<li>$1</li>')
+                            .replace(/^(\\d+)\\. (.*$)/gm, '<li>$1. $2</li>')
+                            // Links
+                            .replace(/\\[([^\\]]+)\\]\\(([^)]+)\\)/g, '<a href="$2" target="_blank">$1</a>')
+                            // Blockquotes
+                            .replace(/^> (.*$)/gm, '<blockquote>$1</blockquote>')
+                            // Highlight crypto values (numbers with $ or crypto symbols)
+                            .replace(/(\\$[\\d,]+\\.?\\d*)/g, '<span class="crypto-value">$1</span>')
+                            .replace(/(\\d+\\.?\\d*\\s*(BTC|ETH|USD|USDC|USDT|SOL|ADA|DOT|LINK|UNI))/gi, '<span class="crypto-value">$1</span>')
+                            // Wrap in paragraph tags
+                            .replace(/^(?!<[^>]+>)(.+)$/gm, '<p>$1</p>')
+                            // Clean up empty paragraphs and fix list formatting
+                            .replace(/<p><\\/p>/g, '')
+                            .replace(/<p>(<li>.*<\\/li>)<\\/p>/g, '<ul>$1</ul>')
+                            .replace(/<\\/li><li>/g, '</li><li>')
+                            .replace(/<ul>(<li>.*)<\\/ul>/g, '<ul>$1</ul>');
+                        
+                        // Post-process to add highlighting for important sections
+                        formattedContent = formattedContent
+                            .replace(/(Key.*?:|Important.*?:|Note.*?:|Summary.*?:|Conclusion.*?:)/gi, '<span class="highlight">$1</span>');
                     }
                 } else {
-                    // Simple line breaks for user messages
-                    formattedContent = content.replace(/\\n/g, '<br>');
+                    // Enhanced user message formatting
+                    formattedContent = content
+                        .replace(/\\n/g, '<br>')
+                        .replace(/\\*\\*(.*?)\\*\\*/g, '<strong>$1</strong>')
+                        .replace(/\\*(.*?)\\*/g, '<em>$1</em>')
+                        .replace(/`(.*?)`/g, '<code>$1</code>');
                 }
 
                 messageDiv.innerHTML = `
@@ -1202,6 +1399,11 @@ async def get_homepage(request: Request):
 
                 messagesDiv.appendChild(messageDiv);
                 messagesDiv.scrollTop = messagesDiv.scrollHeight;
+
+                // Apply syntax highlighting to code blocks
+                if (typeof Prism !== 'undefined') {
+                    Prism.highlightAllUnder(messageDiv);
+                }
 
                 // Execute any scripts in the visualizations after DOM insertion
                 if (visualizations && visualizations.length > 0) {
