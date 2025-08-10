@@ -17,7 +17,7 @@ class DeFiLlamaTool(BaseWeb3Tool):
     def __init__(self):
         super().__init__()
     
-    async def _arun(self, query: str, filters: Optional[Dict[str, Any]] = None) -> str:
+    async def _arun(self, query: str, filters: Optional[Dict[str, Any]] = None, **kwargs) -> str:
         try:
             filters = filters or {}
             
