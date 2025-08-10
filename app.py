@@ -697,6 +697,23 @@ async def get_homepage(request: Request):
                 padding: 0.75rem 0 0.75rem 1rem;
                 border-radius: 0 4px 4px 0;
             }
+            .message-content a {
+                color: var(--accent);
+                text-decoration: none;
+                border-bottom: 1px solid transparent;
+                transition: border-color 0.2s ease;
+            }
+            .message-content a:hover {
+                border-bottom-color: var(--accent);
+            }
+            .message.user .message-content {
+                word-wrap: break-word;
+                white-space: pre-wrap;
+            }
+            .message.user .message-content strong,
+            .message.user .message-content code {
+                color: rgba(255, 255, 255, 0.9);
+            }
 
             .message-meta {
                 font-size: 0.75rem;
