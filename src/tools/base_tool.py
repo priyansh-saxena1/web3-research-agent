@@ -75,6 +75,28 @@ class BaseWeb3Tool(BaseTool, ABC):
     def _run(self, query: str, filters: Optional[Dict[str, Any]] = None) -> str:
         return asyncio.run(self._arun(query, filters))
     
+    def run(self, tool_input: Dict[str, Any]) -> str:
+        """Handle both direct calls and LangChain tool calling format"""
+        if isinstance(tool_input, dict):
+            query = tool_input.get('query', '')
+            filters = tool_input.get('filters')
+        else:
+            # Fallback for string input
+            query = str(tool_input)
+            filters = None
+        return self._run(query, filters)
+    
+    async def arun(self, tool_input: Dict[str, Any]) -> str:
+        """Async version of run method"""
+        if isinstance(tool_input, dict):
+            query = tool_input.get('query', '')
+            filters = tool_input.get('filters')
+        else:
+            # Fallback for string input
+            query = str(tool_input)
+            filters = None
+        return await self._arun(query, filters)
+
     @abstractmethod
     async def _arun(self, query: str, filters: Optional[Dict[str, Any]] = None) -> str:
         pass

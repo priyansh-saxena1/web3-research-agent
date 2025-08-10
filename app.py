@@ -71,9 +71,10 @@ class Web3CoPilotService:
     
     async def process_query(self, query: str) -> QueryResponse:
         """Process research query with visualizations"""
-        logger.info(f"Processing query: {query[:100]}...")
+        logger.info(f"🔍 Processing query: {query[:100]}...")
         
         if not query.strip():
+            logger.warning("⚠️ Empty query received")
             return QueryResponse(
                 success=False, 
                 response="Please provide a research query.", 
@@ -82,6 +83,7 @@ class Web3CoPilotService:
         
         try:
             if not self.enabled:
+                logger.info("ℹ️ Processing in limited mode (no GEMINI_API_KEY)")
                 response = """**Research Assistant - Limited Mode**
 
 API access available for basic cryptocurrency data:
@@ -92,28 +94,35 @@ API access available for basic cryptocurrency data:
 Configure GEMINI_API_KEY environment variable for full AI analysis."""
                 return QueryResponse(success=True, response=response, sources=["System"])
             
-            logger.info("Processing with AI research agent...")
+            logger.info("🤖 Processing with AI research agent...")
+            logger.info(f"🛠️ Available tools: {[tool.name for tool in self.agent.tools] if self.agent else []}")
+            
             result = await self.agent.research_query(query)
+            logger.info(f"🔄 Agent research completed: success={result.get('success')}")
             
             if result.get("success"):
                 response = result.get("result", "No analysis generated")
                 sources = result.get("sources", [])
                 metadata = result.get("metadata", {})
                 
+                logger.info(f"📊 Response generated: {len(response)} chars, {len(sources)} sources")
+                
                 # Generate visualizations if relevant data is available
                 visualizations = []
                 if metadata:
+                    logger.info("📈 Checking for visualization data...")
                     vis_html = await self._generate_visualizations(metadata, query)
                     if vis_html:
                         visualizations.append(vis_html)
+                        logger.info("✅ Visualization generated")
                 
                 # Send to AIRAA if enabled
                 if self.airaa and self.airaa.enabled:
                     try:
                         await self.airaa.send_research_data(query, response)
-                        logger.info("Data sent to AIRAA")
+                        logger.info("📤 Data sent to AIRAA")
                     except Exception as e:
-                        logger.warning(f"AIRAA integration failed: {e}")
+                        logger.warning(f"⚠️ AIRAA integration failed: {e}")
                 
                 return QueryResponse(
                     success=True, 
@@ -124,11 +133,11 @@ Configure GEMINI_API_KEY environment variable for full AI analysis."""
                 )
             else:
                 error_msg = result.get("error", "Research analysis failed")
-                logger.error(f"Research failed: {error_msg}")
+                logger.error(f"❌ Research failed: {error_msg}")
                 return QueryResponse(success=False, response=error_msg, error=error_msg)
             
         except Exception as e:
-            logger.error(f"Query processing error: {e}")
+            logger.error(f"💥 Query processing error: {e}", exc_info=True)
             error_msg = f"Processing error: {str(e)}"
             return QueryResponse(success=False, response=error_msg, error=error_msg)
     
@@ -677,34 +686,60 @@ async def get_homepage(request: Request):
                 const sendBtn = document.getElementById('sendBtn');
                 const query = input.value.trim();
 
-                if (!query) return;
+                if (!query) {
+                    console.log('❌ Empty query, not sending');
+                    return;
+                }
 
+                console.log('📤 Sending query:', query);
                 addMessage('user', query);
                 input.value = '';
 
+                // Update button state
                 sendBtn.disabled = true;
                 sendBtn.innerHTML = '<span class="loading">Processing</span>';
 
                 try {
+                    console.log('🔄 Making API request...');
+                    const requestStart = Date.now();
+                    
                     const response = await fetch('/query', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ query, chat_history: chatHistory })
                     });
 
+                    const requestTime = Date.now() - requestStart;
+                    console.log(`⏱️ Request completed in ${requestTime}ms`);
+
+                    if (!response.ok) {
+                        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                    }
+
                     const result = await response.json();
+                    console.log('📥 Response received:', {
+                        success: result.success,
+                        responseLength: result.response?.length || 0,
+                        sources: result.sources?.length || 0,
+                        visualizations: result.visualizations?.length || 0
+                    });
 
                     if (result.success) {
                         addMessage('assistant', result.response, result.sources, result.visualizations);
+                        console.log('✅ Message added successfully');
                     } else {
-                        addMessage('assistant', result.response || 'Analysis failed. Please try again.');
+                        console.error('❌ Query failed:', result.error);
+                        addMessage('assistant', result.response || 'Analysis failed. Please try again.', [], []);
                     }
                 } catch (error) {
-                    addMessage('assistant', 'Connection error. Please check your network and try again.');
+                    console.error('💥 Request error:', error);
+                    addMessage('assistant', `Connection error: ${error.message}. Please check your network and try again.`);
                 } finally {
+                    // Reset button state
                     sendBtn.disabled = false;
                     sendBtn.innerHTML = 'Research';
                     input.focus();
+                    console.log('🔄 Button state reset');
                 }
             }
 
@@ -790,8 +825,40 @@ async def get_status():
 
 @app.post("/query", response_model=QueryResponse)
 async def process_query(request: QueryRequest):
-    """Process research query"""
-    return await service.process_query(request.query)
+    """Process research query with detailed logging"""
+    # Log incoming request
+    logger.info(f"📥 Query received: {request.query[:100]}...")
+    logger.info(f"📊 Chat history length: {len(request.chat_history) if request.chat_history else 0}")
+    
+    start_time = datetime.now()
+    
+    try:
+        # Process the query
+        result = await service.process_query(request.query)
+        
+        # Log result
+        processing_time = (datetime.now() - start_time).total_seconds()
+        logger.info(f"✅ Query processed in {processing_time:.2f}s - Success: {result.success}")
+        
+        if result.success:
+            logger.info(f"📤 Response length: {len(result.response)} chars")
+            logger.info(f"🔗 Sources: {result.sources}")
+            if result.visualizations:
+                logger.info(f"📈 Visualizations: {len(result.visualizations)} charts")
+        else:
+            logger.error(f"❌ Query failed: {result.error}")
+        
+        return result
+        
+    except Exception as e:
+        processing_time = (datetime.now() - start_time).total_seconds()
+        logger.error(f"💥 Query processing exception after {processing_time:.2f}s: {e}")
+        
+        return QueryResponse(
+            success=False,
+            response=f"System error: {str(e)}",
+            error=str(e)
+        )
 
 @app.get("/health")
 async def health_check():
@@ -802,6 +869,54 @@ async def health_check():
         "service_enabled": service.enabled,
         "version": "2.0.0"
     }
+
+@app.get("/debug/tools")
+async def debug_tools():
+    """Debug endpoint to test tool availability and functionality"""
+    try:
+        if not service.enabled or not service.agent:
+            return {
+                "success": False,
+                "error": "AI agent not enabled",
+                "tools_available": False,
+                "gemini_configured": bool(config.GEMINI_API_KEY)
+            }
+        
+        tools_info = []
+        for tool in service.agent.tools:
+            tools_info.append({
+                "name": tool.name,
+                "description": getattr(tool, 'description', 'No description'),
+                "enabled": getattr(tool, 'enabled', True)
+            })
+        
+        # Test a simple API call
+        test_result = None
+        try:
+            test_result = await service.process_query("What is the current Bitcoin price?")
+        except Exception as e:
+            test_result = {"error": str(e)}
+        
+        return {
+            "success": True,
+            "tools_count": len(service.agent.tools),
+            "tools_info": tools_info,
+            "test_query_result": {
+                "success": test_result.success if hasattr(test_result, 'success') else False,
+                "response_length": len(test_result.response) if hasattr(test_result, 'response') else 0,
+                "sources": test_result.sources if hasattr(test_result, 'sources') else [],
+                "error": test_result.error if hasattr(test_result, 'error') else None
+            },
+            "gemini_configured": bool(config.GEMINI_API_KEY),
+            "timestamp": datetime.now().isoformat()
+        }
+    except Exception as e:
+        logger.error(f"Debug tools error: {e}")
+        return {
+            "success": False,
+            "error": str(e),
+            "timestamp": datetime.now().isoformat()
+        }
 
 if __name__ == "__main__":
     import uvicorn
