@@ -1371,51 +1371,22 @@ async def get_homepage(request: Request):
                             throw new Error('marked.js not available');
                         }
                     } catch (error) {
-                        // Enhanced fallback formatting if marked.js fails
-                        console.warn('Markdown parsing failed, using enhanced fallback:', error);
+                        // Simple fallback formatting if marked.js fails
+                        console.warn('Markdown parsing failed, using simple fallback:', error);
                         formattedContent = content
-                            // Convert line breaks
-                            .replace(/\n\n/g, '</p><p>')
+                            .replace(/\n\n/g, '<br><br>')
                             .replace(/\n/g, '<br>')
-                            // Headers
-                            .replace(/^### (.*$)/gm, '<h3>$1</h3>')
-                            .replace(/^## (.*$)/gm, '<h2>$1</h2>')
-                            .replace(/^# (.*$)/gm, '<h1>$1</h1>')
-                            // Bold and italic
-                            .replace(/\\*\\*(.*?)\\*\\*/g, '<strong>$1</strong>')
-                            .replace(/\\*(.*?)\\*/g, '<em>$1</em>')
-                            // Code blocks
-                            .replace(/```([\\s\\S]*?)```/g, '<pre><code>$1</code></pre>')
-                            .replace(/`(.*?)`/g, '<code>$1</code>')
-                            // Lists
-                            .replace(/^\\* (.*$)/gm, '<li>$1</li>')
-                            .replace(/^\\- (.*$)/gm, '<li>$1</li>')
-                            .replace(/^(\\d+)\\. (.*$)/gm, '<li>$1. $2</li>')
-                            // Links
-                            .replace(/\\[([^\\]]+)\\]\\(([^)]+)\\)/g, '<a href="$2" target="_blank">$1</a>')
-                            // Blockquotes
-                            .replace(/^> (.*$)/gm, '<blockquote>$1</blockquote>')
-                            // Highlight crypto values (numbers with $ or crypto symbols)
-                            .replace(/(\\$[\\d,]+\\.?\\d*)/g, '<span class="crypto-value">$1</span>')
-                            .replace(/(\\d+\\.?\\d*\\s*(BTC|ETH|USD|USDC|USDT|SOL|ADA|DOT|LINK|UNI))/gi, '<span class="crypto-value">$1</span>')
-                            // Wrap in paragraph tags
-                            .replace(/^(?!<[^>]+>)(.+)$/gm, '<p>$1</p>')
-                            // Clean up empty paragraphs and fix list formatting
-                            .replace(/<p><\\/p>/g, '')
-                            .replace(/<p>(<li>.*<\\/li>)<\\/p>/g, '<ul>$1</ul>')
-                            .replace(/<\\/li><li>/g, '</li><li>')
-                            .replace(/<ul>(<li>.*)<\\/ul>/g, '<ul>$1</ul>');
-                        
-                        // Post-process to add highlighting for important sections
-                        formattedContent = formattedContent
-                            .replace(/(Key.*?:|Important.*?:|Note.*?:|Summary.*?:|Conclusion.*?:)/gi, '<span class="highlight">$1</span>');
+                            .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+                            .replace(/\*(.*?)\*/g, '<em>$1</em>')
+                            .replace(/`(.*?)`/g, '<code>$1</code>');
+                    }
                     }
                 } else {
-                    // Enhanced user message formatting
+                    // Simple user message formatting
                     formattedContent = content
-                        .replace(/\\n/g, '<br>')
-                        .replace(/\\*\\*(.*?)\\*\\*/g, '<strong>$1</strong>')
-                        .replace(/\\*(.*?)\\*/g, '<em>$1</em>')
+                        .replace(/\n/g, '<br>')
+                        .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+                        .replace(/\*(.*?)\*/g, '<em>$1</em>')
                         .replace(/`(.*?)`/g, '<code>$1</code>');
                 }
 
