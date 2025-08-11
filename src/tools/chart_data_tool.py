@@ -271,9 +271,9 @@ class ChartDataTool(BaseTool):
                             break
                 protocols_data = filtered_protocols[:8]  # Limit to 8
             else:
-                # Get top protocols by TVL
-                protocols_data = sorted([p for p in data if p.get("tvl", 0) > 0], 
-                                      key=lambda x: x.get("tvl", 0), reverse=True)[:8]
+                # Get top protocols by TVL (filter out None values)
+                valid_protocols = [p for p in data if p.get("tvl") is not None and p.get("tvl", 0) > 0]
+                protocols_data = sorted(valid_protocols, key=lambda x: x.get("tvl", 0), reverse=True)[:8]
             
             if not protocols_data:
                 return await self._get_mock_defi_data(protocols)

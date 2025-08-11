@@ -202,6 +202,7 @@ class Web3ResearchAgent:
                     "metadata": {"llm": "ollama", "mode": "simple", "timestamp": datetime.now().isoformat()}
                 }
             except Exception as fallback_error:
+                logger.error(f"Fallback response failed: {fallback_error}")
                 return {
                     "success": False,
                     "query": query,
@@ -333,8 +334,11 @@ Just list the tool names:"""
                 )
                 logger.info(f"🎯 Ollama final response preview: {str(final_response)[:300]}...")
                 
+                # Extract content from Ollama response
+                response_content = str(final_response)
+                
                 # AI Safety Check: Validate response
-                clean_response, response_safe, response_reason = ai_safety.validate_ollama_response(final_response)
+                clean_response, response_safe, response_reason = ai_safety.validate_ollama_response(response_content)
                 if not response_safe:
                     ai_safety.log_safety_event("blocked_ollama_response", {
                         "reason": response_reason,
@@ -355,16 +359,20 @@ Based on the available data:
             except asyncio.TimeoutError:
                 logger.warning("⏱️ Ollama final response timed out, using tool data directly")
                 # Create a summary from the tool results directly
-                if "cryptocompare_data" in suggested_tools and "Bitcoin" in query:
-                    btc_data = "Bitcoin: $122,044+ USD"
+                summary_data = "Tool data available"
+                if "cryptocompare_data" in suggested_tools:
+                    if "bitcoin" in query.lower() or "btc" in query.lower():
+                        summary_data = "Bitcoin price data retrieved"
+                    else:
+                        summary_data = "Cryptocurrency price data retrieved"
                 elif "defillama_data" in suggested_tools:
-                    defi_data = "DeFi protocols data available"
-                else:
-                    btc_data = "Tool data available"
+                    summary_data = "DeFi protocols data available"
+                elif "etherscan_data" in suggested_tools:
+                    summary_data = "Ethereum blockchain data available"
                 
                 final_response = f"""## {query.split()[0]} Analysis
 
-**Quick Summary**: {btc_data}
+**Quick Summary**: {summary_data}
 
 The system successfully gathered data from {len(suggested_tools)} tools:
 {', '.join(suggested_tools)}
@@ -502,8 +510,14 @@ Respond with only the tool names, comma-separated (no explanations)."""
                 )
                 logger.info(f"🎯 Gemini final response preview: {str(final_response)[:300]}...")
                 
+                # Extract content from Gemini response object
+                if hasattr(final_response, 'content'):
+                    response_content = final_response.content
+                else:
+                    response_content = str(final_response)
+                
                 # AI Safety Check: Validate response
-                clean_response, response_safe, response_reason = ai_safety.validate_gemini_response(str(final_response))
+                clean_response, response_safe, response_reason = ai_safety.validate_gemini_response(response_content)
                 if not response_safe:
                     ai_safety.log_safety_event("blocked_gemini_response", {
                         "reason": response_reason,
