@@ -6,6 +6,7 @@ ENV PYTHONUNBUFFERED=1
 ENV DEBIAN_FRONTEND=noninteractive
 ENV OLLAMA_HOST=0.0.0.0
 ENV OLLAMA_PORT=11434
+ENV OLLAMA_HOME=/app/.ollama
 ENV PYTHONPATH=/app
 
 # Set working directory
@@ -29,8 +30,10 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy application code
 COPY . .
 
-# Create necessary directories including separated web files
-RUN mkdir -p logs cache templates static
+# Create necessary directories including Ollama data directory
+RUN mkdir -p logs cache templates static $OLLAMA_HOME \
+    && chown -R 1000:1000 /app \
+    && chmod -R 755 /app
 
 # Expose ports for both app and Ollama
 EXPOSE 7860 11434
@@ -38,6 +41,15 @@ EXPOSE 7860 11434
 # Create startup script
 RUN echo '#!/bin/bash\n\
 echo "🚀 Starting HuggingFace Spaces Web3 Research Co-Pilot..."\n\
+\n\
+# Set Ollama environment\n\
+export OLLAMA_HOME=/app/.ollama\n\
+export OLLAMA_HOST=0.0.0.0\n\
+export OLLAMA_PORT=11434\n\
+\n\
+# Ensure Ollama directory exists with correct permissions\n\
+mkdir -p $OLLAMA_HOME\n\
+chmod 755 $OLLAMA_HOME\n\
 \n\
 # Start Ollama server in background\n\
 echo "📦 Starting Ollama server..."\n\
