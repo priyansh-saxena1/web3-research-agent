@@ -7,6 +7,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 ENV OLLAMA_HOST=0.0.0.0
 ENV OLLAMA_PORT=11434
 ENV OLLAMA_HOME=/app/.ollama
+ENV HOME=/app
 ENV PYTHONPATH=/app
 
 # Set working directory
@@ -40,22 +41,22 @@ EXPOSE 7860 11434
 
 # Create startup script
 RUN echo '#!/bin/bash\n\
+set -e\n\
 echo "🚀 Starting HuggingFace Spaces Web3 Research Co-Pilot..."\n\
 \n\
-# Set Ollama environment variables\n\
-export OLLAMA_HOME=/app/.ollama\n\
-export OLLAMA_HOST=0.0.0.0\n\
-export OLLAMA_PORT=11434\n\
-\n\
-# Create and set permissions for Ollama directory\n\
+# Create Ollama data directory with proper permissions\n\
 echo "🗂️  Setting up Ollama data directory..."\n\
 mkdir -p /app/.ollama\n\
 chmod -R 755 /app/.ollama\n\
-ls -la /app/.ollama\n\
+chown -R $(whoami):$(whoami) /app/.ollama 2>/dev/null || true\n\
+echo "Directory created: $(ls -la /app/.ollama)"\n\
 \n\
-# Start Ollama server in background with explicit data directory\n\
-echo "📦 Starting Ollama server..."\n\
-OLLAMA_HOME=/app/.ollama ollama serve &\n\
+# Start Ollama server with explicit home directory\n\
+echo "📦 Starting Ollama server with data directory /app/.ollama..."\n\
+export HOME=/app\n\
+export OLLAMA_HOME=/app/.ollama\n\
+cd /app\n\
+ollama serve &\n\
 OLLAMA_PID=$!\n\
 \n\
 # Wait for Ollama to be ready\n\
@@ -69,7 +70,10 @@ echo "✅ Ollama server is ready!"\n\
 \n\
 # Pull the Llama 3.1 8B model\n\
 echo "📥 Pulling llama3.1:8b model (this may take a few minutes)..."\n\
-OLLAMA_HOME=/app/.ollama ollama pull llama3.1:8b\n\
+export HOME=/app\n\
+export OLLAMA_HOME=/app/.ollama\n\
+cd /app\n\
+ollama pull llama3.1:8b\n\
 echo "✅ Model llama3.1:8b ready!"\n\
 \n\
 # Start the main application\n\
