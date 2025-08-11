@@ -388,6 +388,7 @@ Configure GEMINI_API_KEY environment variable for full AI analysis."""
 # Initialize service
 service = Web3CoPilotService()
 
+
 @app.get("/", response_class=HTMLResponse)
 async def get_homepage(request: Request):
     """Serve the main interface using templates"""
