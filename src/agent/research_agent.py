@@ -242,7 +242,31 @@ Just list the tool names:"""
                 if tool:
                     try:
                         logger.info(f"🔧 Executing {tool_name}")
-                        result = await tool._arun(query)
+                        
+                        # Handle chart_data_provider with proper parameters
+                        if tool_name == "chart_data_provider":
+                            # Extract chart type from query or default to price_chart
+                            chart_type = "price_chart"  # Default
+                            symbol = "bitcoin"  # Default
+                            
+                            if "defi" in query.lower() or "tvl" in query.lower():
+                                chart_type = "defi_tvl"
+                            elif "market" in query.lower() or "overview" in query.lower():
+                                chart_type = "market_overview"
+                            elif "gas" in query.lower():
+                                chart_type = "gas_tracker"
+                                
+                            # Extract symbol if mentioned
+                            if "ethereum" in query.lower() or "eth" in query.lower():
+                                symbol = "ethereum"
+                            elif "bitcoin" in query.lower() or "btc" in query.lower():
+                                symbol = "bitcoin"
+                                
+                            result = await tool._arun(chart_type=chart_type, symbol=symbol)
+                        else:
+                            # Other tools use the query directly
+                            result = await tool._arun(query)
+                            
                         logger.info(f"📊 {tool_name} result preview: {str(result)[:200]}...")
                         tool_results.append(f"=== {tool_name} Results ===\n{result}\n")
                     except Exception as e:
@@ -308,7 +332,7 @@ The system successfully gathered data from {len(suggested_tools)} tools:
                 "result": final_response,
                 "sources": [],
                 "metadata": {
-                    "llm_used": f"Ollama ({self.config.OLLAMA_MODEL})", 
+                    "llm_used": f"Ollama ({config.OLLAMA_MODEL})", 
                     "tools_used": suggested_tools,
                     "timestamp": datetime.now().isoformat()
                 }
