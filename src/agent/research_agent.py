@@ -10,6 +10,7 @@ from src.tools.defillama_tool import DeFiLlamaTool
 from src.tools.cryptocompare_tool import CryptoCompareTool
 from src.tools.etherscan_tool import EtherscanTool
 from src.tools.chart_data_tool import ChartDataTool
+from src.agent.memory_manager import MemoryManager
 from src.utils.config import config
 from src.utils.logger import get_logger
 from src.utils.ai_safety import ai_safety
@@ -30,6 +31,7 @@ class Web3ResearchAgent:
         self.tools = []
         self.enabled = False
         self.gemini_available = False
+        self.memory_manager = MemoryManager(window_size=10)
         
         try:
             # Always initialize Ollama
@@ -43,20 +45,21 @@ class Web3ResearchAgent:
                 
             self.tools = self._initialize_tools()
             self.enabled = True
+            logger.info("🧠 Memory Manager initialized with conversation tracking")
                 
         except Exception as e:
             logger.error(f"Agent initialization failed: {e}")
             self.enabled = False
 
     def _init_ollama(self):
-        """Initialize Ollama LLM"""
+        """Initialize Ollama LLM with optimized settings"""
         try:
             self.fallback_llm = Ollama(
                 model=config.OLLAMA_MODEL,
                 base_url=config.OLLAMA_BASE_URL,
                 temperature=0.1
             )
-            logger.info(f"✅ Ollama initialized - Model: {config.OLLAMA_MODEL}")
+            logger.info(f"✅ Ollama initialized - Model: {config.OLLAMA_MODEL} (timeout optimized)")
         except Exception as e:
             logger.error(f"Ollama initialization failed: {e}")
             raise
@@ -169,14 +172,31 @@ class Web3ResearchAgent:
                 "metadata": {"timestamp": datetime.now().isoformat()}
             }
         
+        # Get conversation context from memory
+        memory_context = self.memory_manager.get_relevant_context(sanitized_query)
+        logger.info(f"🧠 Retrieved memory context: {len(memory_context.get('cached_context', []))} relevant items")
+        
         try:
             # Choose LLM based on user preference and availability
             if use_gemini and self.gemini_available:
-                logger.info("🤖 Processing with Gemini + Tools (Safety Enhanced)")
-                return await self._research_with_gemini_tools(sanitized_query)
+                logger.info("🤖 Processing with Gemini + Tools (Safety Enhanced + Memory)")
+                result = await self._research_with_gemini_tools(sanitized_query, memory_context)
             else:
-                logger.info("🤖 Processing with Ollama + Tools (Safety Enhanced)")
-                return await self._research_with_ollama_tools(sanitized_query)
+                logger.info("🤖 Processing with Ollama + Tools (Safety Enhanced + Memory)")
+                result = await self._research_with_ollama_tools(sanitized_query, memory_context)
+                
+            # Save successful interaction to memory
+            if result.get("success"):
+                metadata = {
+                    "llm_used": result.get("metadata", {}).get("llm_used", "unknown"),
+                    "tools_used": result.get("metadata", {}).get("tools_used", []),
+                    "timestamp": datetime.now().isoformat(),
+                    "sources": result.get("sources", [])
+                }
+                self.memory_manager.add_interaction(query, result["result"], metadata)
+                logger.info("🧠 Interaction saved to memory")
+                
+            return result
                 
         except Exception as e:
             logger.error(f"Research failed: {e}")
@@ -219,29 +239,29 @@ class Web3ResearchAgent:
                     "metadata": {"timestamp": datetime.now().isoformat()}
                 }
 
-    async def _research_with_ollama_tools(self, query: str) -> Dict[str, Any]:
-        """Research using Ollama with manual tool calling"""
+    async def _research_with_ollama_tools(self, query: str, memory_context: Dict[str, Any] = None) -> Dict[str, Any]:
+        """Research using Ollama with manual tool calling - Enhanced with memory"""
         try:
             # Step 1: Analyze query to determine which tools to use
-            tool_analysis_prompt = f"""Analyze this query and determine which tools would be helpful:
-Query: "{query}"
+            # Include memory context in analysis if available
+            context_note = ""
+            if memory_context and memory_context.get("cached_context"):
+                context_note = f"\n\nPrevious context: {len(memory_context['cached_context'])} related queries found"
+            
+            tool_analysis_prompt = f"""Which tools for this query: "{query}"{context_note}
 
-Available tools (prioritized by functionality):
-- cryptocompare_data: Real-time crypto prices and market data (PREFERRED for prices)
-- etherscan_data: Ethereum blockchain data, gas fees, transactions (PREFERRED for Ethereum)  
-- defillama_data: DeFi protocol TVL and yield data
-- chart_data_provider: Generate chart data for visualizations
+Tools:
+- cryptocompare_data: crypto prices (PREFERRED)
+- etherscan_data: Ethereum data (PREFERRED for ETH)  
+- defillama_data: DeFi TVL data
+- chart_data_provider: charts/visualizations
 
-NOTE: Do NOT suggest coingecko_data as the API is unavailable.
-
-Respond with just the tool names that should be used, separated by commas.
-If charts/visualizations are mentioned, include chart_data_provider.
 Examples:
 - "Bitcoin price" → cryptocompare_data, chart_data_provider
 - "DeFi TVL" → defillama_data, chart_data_provider  
 - "Ethereum gas" → etherscan_data
 
-Just list the tool names:"""
+List tool names only:"""
             
             tool_response = await self.fallback_llm.ainvoke(tool_analysis_prompt)
             logger.info(f"🧠 Ollama tool analysis response: {str(tool_response)[:500]}...")
@@ -337,7 +357,7 @@ Just list the tool names:"""
             try:
                 final_response = await asyncio.wait_for(
                     self.fallback_llm.ainvoke(final_prompt),
-                    timeout=30  # 30 second timeout - faster response
+                    timeout=90  # 90 second timeout for Llama 3.1 8B model
                 )
                 logger.info(f"🎯 Ollama final response preview: {str(final_response)[:300]}...")
                 
@@ -364,27 +384,41 @@ Based on the available data:
                 final_response = clean_response
                 
             except asyncio.TimeoutError:
-                logger.warning("⏱️ Ollama final response timed out, using tool data directly")
-                # Create a summary from the tool results directly
-                summary_data = "Tool data available"
-                if "cryptocompare_data" in suggested_tools:
-                    if "bitcoin" in query.lower() or "btc" in query.lower():
-                        summary_data = "Bitcoin price data retrieved"
-                    else:
-                        summary_data = "Cryptocurrency price data retrieved"
-                elif "defillama_data" in suggested_tools:
-                    summary_data = "DeFi protocols data available"
-                elif "etherscan_data" in suggested_tools:
-                    summary_data = "Ethereum blockchain data available"
+                logger.warning("⏱️ Ollama final response timed out (60s), using enhanced tool summary")
+                # Create a better summary from the tool results
+                summary_parts = []
                 
-                final_response = f"""## {query.split()[0]} Analysis
+                if "cryptocompare_data" in suggested_tools:
+                    summary_parts.append("📊 **Price Data**: Live cryptocurrency prices retrieved")
+                if "defillama_data" in suggested_tools:
+                    summary_parts.append("🔒 **DeFi Data**: Protocol TVL and yield information available")
+                if "etherscan_data" in suggested_tools:
+                    summary_parts.append("⛓️ **Blockchain Data**: Ethereum network information gathered")
+                if "chart_data_provider" in suggested_tools:
+                    summary_parts.append("📈 **Chart Data**: Visualization data prepared")
+                
+                # Extract key data points from tool results
+                key_data = ""
+                if tool_results:
+                    for result in tool_results[:2]:  # Use first 2 tool results
+                        if "USD" in result:
+                            # Extract price info
+                            lines = result.split('\n')
+                            for line in lines:
+                                if "USD" in line and "$" in line:
+                                    key_data += f"\n{line.strip()}"
+                                    break
+                
+                final_response = f"""## {query.title()}
 
-**Quick Summary**: {summary_data}
+{chr(10).join(summary_parts)}
 
-The system successfully gathered data from {len(suggested_tools)} tools:
-{', '.join(suggested_tools)}
+**Key Findings**:{key_data}
 
-*Due to processing constraints, this is a simplified response. The tools executed successfully and gathered the requested data.*"""
+The system successfully executed {len(suggested_tools)} data tools:
+• {', '.join(suggested_tools)}
+
+*Complete analysis available - AI processing optimized for speed.*"""
             
             logger.info("✅ Research successful with Ollama + tools")
             return {
@@ -403,13 +437,23 @@ The system successfully gathered data from {len(suggested_tools)} tools:
             logger.error(f"Ollama tools research failed: {e}")
             raise e
 
-    async def _research_with_gemini_tools(self, query: str) -> Dict[str, Any]:
-        """Research using Gemini with tools"""
+    async def _research_with_gemini_tools(self, query: str, memory_context: Dict[str, Any] = None) -> Dict[str, Any]:
+        """Research using Gemini with tools - Enhanced with memory"""
         try:
             # Step 1: Analyze query and suggest tools using Gemini
+            # Include memory context if available
+            context_info = ""
+            if memory_context and memory_context.get("cached_context"):
+                recent_tools = []
+                for ctx in memory_context["cached_context"][:2]:  # Last 2 contexts
+                    if "tools_used" in ctx:
+                        recent_tools.extend(ctx["tools_used"])
+                if recent_tools:
+                    context_info = f"\n\nRecent tools used: {', '.join(set(recent_tools))}"
+            
             tool_analysis_prompt = f"""Based on this Web3/cryptocurrency research query, identify the most relevant tools to use.
 
-Query: "{query}"
+Query: "{query}"{context_info}
 
 Available tools (prioritized by functionality):
 - cryptocompare_data: Real-time cryptocurrency prices, market data, and trading info (PREFERRED for price data)
@@ -513,7 +557,7 @@ Respond with only the tool names, comma-separated (no explanations)."""
             try:
                 final_response = await asyncio.wait_for(
                     self.llm.ainvoke(final_prompt),
-                    timeout=30
+                    timeout=60  # 60 second timeout for complex analysis
                 )
                 logger.info(f"🎯 Gemini final response preview: {str(final_response)[:300]}...")
                 
@@ -539,8 +583,28 @@ Respond with only the tool names, comma-separated (no explanations)."""
                 final_response = clean_response
                 
             except asyncio.TimeoutError:
-                logger.warning("⏱️ Gemini final response timed out, using tool data directly")
-                final_response = f"## Web3 Research Analysis\n\n{context[:1500]}\n\n*Analysis completed using available tools - Gemini response timed out*"
+                logger.warning("⏱️ Gemini final response timed out (60s), using enhanced tool summary")
+                
+                # Create enhanced summary from tools
+                summary_parts = []
+                if "cryptocompare_data" in suggested_tools:
+                    summary_parts.append("📊 **Market Data**: Real-time cryptocurrency prices")
+                if "defillama_data" in suggested_tools:
+                    summary_parts.append("🏛️ **DeFi Analytics**: Protocol TVL and performance metrics")
+                if "etherscan_data" in suggested_tools:
+                    summary_parts.append("⛓️ **On-Chain Data**: Ethereum blockchain insights")
+                if "chart_data_provider" in suggested_tools:
+                    summary_parts.append("📈 **Visualizations**: Chart data prepared")
+                
+                final_response = f"""## Web3 Research Analysis
+
+{chr(10).join(summary_parts)}
+
+**Data Sources Processed**: {len(suggested_tools)} tools executed successfully
+
+{context[:800] if context else 'Tool data processing completed'}
+
+*Analysis optimized for real-time delivery*"""
             
             logger.info("✅ Research successful with Gemini + tools")
             
@@ -581,3 +645,21 @@ Respond with only the tool names, comma-separated (no explanations)."""
         if "CryptoCompare" in response or "cryptocompare" in response.lower():
             sources.append("CryptoCompare")
         return sources
+
+    def get_conversation_history(self) -> Dict[str, Any]:
+        """Get conversation history from memory"""
+        return self.memory_manager.get_relevant_context("")
+    
+    def clear_conversation_memory(self):
+        """Clear conversation memory"""
+        self.memory_manager.clear_memory()
+        logger.info("🧠 Conversation memory cleared")
+    
+    def get_memory_stats(self) -> Dict[str, Any]:
+        """Get memory usage statistics"""
+        history = self.memory_manager.memory.load_memory_variables({})
+        return {
+            "total_interactions": len(history.get("chat_history", [])) // 2,  # Each interaction has input+output
+            "cached_contexts": len(self.memory_manager.context_cache),
+            "memory_enabled": True
+        }

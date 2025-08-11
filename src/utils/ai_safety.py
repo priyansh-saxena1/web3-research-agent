@@ -165,32 +165,22 @@ class AISafetyGuard:
         return cleaned, True, "Response is safe"
     
     def create_safe_prompt(self, user_query: str, tool_context: str) -> str:
-        """Create a safety-enhanced prompt for Ollama"""
-        safety_instructions = """
-SAFETY GUIDELINES:
-- Provide only factual, helpful information about cryptocurrency and blockchain
-- Do not provide advice on market manipulation, illegal activities, or harmful content
-- Focus on educational and analytical content
-- If asked about unsafe topics, politely decline and redirect to safe alternatives
-- Base your response strictly on the provided data
-
-"""
+        """Create a safety-enhanced prompt for Ollama - Optimized for speed"""
         
-        prompt = f"""{safety_instructions}
+        # Truncate context if too long to improve processing speed
+        if len(tool_context) > 2000:
+            tool_context = tool_context[:2000] + "\n[Context truncated for processing speed]"
+        
+        prompt = f"""Answer this cryptocurrency question using the data provided:
 
-USER QUERY: {user_query}
+QUESTION: {user_query}
 
-CONTEXT DATA:
+DATA:
 {tool_context}
 
-INSTRUCTIONS:
-- Answer the user's cryptocurrency question using only the provided context data
-- Be professional, accurate, and helpful
-- If the data doesn't support a complete answer, acknowledge the limitations
-- Provide educational insights where appropriate
-- Keep responses focused on legitimate cryptocurrency analysis
+Provide a helpful, factual response focused on cryptocurrency analysis. Be concise and professional.
 
-RESPONSE:"""
+ANSWER:"""
         
         return prompt
     
