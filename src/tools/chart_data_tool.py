@@ -90,6 +90,7 @@ class ChartDataTool(BaseTool):
 
     async def _get_price_chart_data(self, symbol: str, days: int) -> str:
         """Get price chart data with fallback for API failures"""
+        coingecko = None
         try:
             # First try to get real data from CoinGecko
             from src.tools.coingecko_tool import CoinGeckoTool
@@ -155,6 +156,13 @@ class ChartDataTool(BaseTool):
             logger.error(f"Price chart data generation failed: {e}")
             # Final fallback to mock data
             return await self._get_mock_price_data(symbol, days)
+        finally:
+            # Cleanup CoinGecko tool session
+            if coingecko and hasattr(coingecko, 'cleanup'):
+                try:
+                    await coingecko.cleanup()
+                except Exception:
+                    pass  # Ignore cleanup errors
     
     async def _get_mock_price_data(self, symbol: str, days: int) -> str:
         """Fallback mock price data"""
@@ -396,5 +404,8 @@ class ChartDataTool(BaseTool):
     
     async def cleanup(self):
         """Cleanup method for session management"""
-        # ChartDataTool doesn't maintain persistent connections, so nothing to clean up
-        pass
+        # ChartDataTool creates temporary tools that may have sessions
+        # Since we don't maintain persistent references, sessions should auto-close
+        # But we can force garbage collection to ensure cleanup
+        import gc
+        gc.collect()
