@@ -58,12 +58,12 @@ class Web3ResearchAgent:
         """Initialize Gemini LLM"""
         try:
             self.llm = ChatGoogleGenerativeAI(
-                model="gemini-pro",
+                model="gemini-2.0-flash-lite",  # Updated to Gemini 2.0 Flash-Lite
                 google_api_key=config.GEMINI_API_KEY,
                 temperature=0.1
             )
             self.gemini_available = True
-            logger.info("✅ Gemini initialized")
+            logger.info("✅ Gemini initialized with gemini-2.0-flash-lite")
         except Exception as e:
             logger.warning(f"Gemini initialization failed: {e}")
             self.gemini_available = False
@@ -261,41 +261,57 @@ Just list the tool names:"""
             
             # Step 2: Execute relevant tools
             tool_results = []
-            for tool_name in suggested_tools:
-                tool = next((t for t in self.tools if t.name == tool_name), None)
-                if tool:
-                    try:
-                        logger.info(f"🔧 Executing {tool_name}")
-                        
-                        # Handle chart_data_provider with proper parameters
-                        if tool_name == "chart_data_provider":
-                            # Extract chart type from query or default to price_chart
-                            chart_type = "price_chart"  # Default
-                            symbol = "bitcoin"  # Default
+            try:
+                for tool_name in suggested_tools:
+                    tool = next((t for t in self.tools if t.name == tool_name), None)
+                    if tool:
+                        try:
+                            logger.info(f"🔧 Executing {tool_name}")
                             
-                            if "defi" in query.lower() or "tvl" in query.lower():
-                                chart_type = "defi_tvl"
-                            elif "market" in query.lower() or "overview" in query.lower():
-                                chart_type = "market_overview"
-                            elif "gas" in query.lower():
-                                chart_type = "gas_tracker"
+                            # Handle chart_data_provider with proper parameters
+                            if tool_name == "chart_data_provider":
+                                # Extract chart type from query or default to price_chart
+                                chart_type = "price_chart"  # Default
+                                symbol = "bitcoin"  # Default
                                 
-                            # Extract symbol if mentioned
-                            if "ethereum" in query.lower() or "eth" in query.lower():
-                                symbol = "ethereum"
-                            elif "bitcoin" in query.lower() or "btc" in query.lower():
-                                symbol = "bitcoin"
+                                if "defi" in query.lower() or "tvl" in query.lower():
+                                    chart_type = "defi_tvl"
+                                elif "market" in query.lower() or "overview" in query.lower():
+                                    chart_type = "market_overview"
+                                elif "gas" in query.lower():
+                                    chart_type = "gas_tracker"
+                                    
+                                # Extract symbol if mentioned
+                                if "ethereum" in query.lower() or "eth" in query.lower():
+                                    symbol = "ethereum"
+                                elif "bitcoin" in query.lower() or "btc" in query.lower():
+                                    symbol = "bitcoin"
+                                    
+                                result = await tool._arun(chart_type=chart_type, symbol=symbol)
+                            else:
+                                # Other tools use the query directly
+                                result = await tool._arun(query)
                                 
-                            result = await tool._arun(chart_type=chart_type, symbol=symbol)
-                        else:
-                            # Other tools use the query directly
-                            result = await tool._arun(query)
-                            
-                        logger.info(f"📊 {tool_name} result preview: {str(result)[:200]}...")
-                        tool_results.append(f"=== {tool_name} Results ===\n{result}\n")
-                    except Exception as e:
-                        logger.error(f"Tool {tool_name} failed: {e}")
-                        tool_results.append(f"=== {tool_name} Error ===\nTool failed: {str(e)}\n")
+                            logger.info(f"📊 {tool_name} result preview: {str(result)[:200]}...")
+                            tool_results.append(f"=== {tool_name} Results ===\n{result}\n")
+                        except Exception as e:
+                            logger.error(f"Tool {tool_name} failed: {e}")
+                            tool_results.append(f"=== {tool_name} Error ===\nTool failed: {str(e)}\n")
+                        finally:
+                            # Cleanup tool session if available
+                            if hasattr(tool, 'cleanup'):
+                                try:
+                                    await tool.cleanup()
+                                except Exception:
+                                    pass  # Ignore cleanup errors
+            finally:
+                # Ensure all tools are cleaned up
+                for tool in self.tools:
+                    if hasattr(tool, 'cleanup'):
+                        try:
+                            await tool.cleanup()
+                        except Exception:
+                            pass
             
             # Step 3: Generate final response with tool results using AI Safety
             context = "\n".join(tool_results) if tool_results else "No tool data available - provide general information."
@@ -405,38 +421,54 @@ Respond with only the tool names, comma-separated (no explanations)."""
 
             # Step 2: Execute tools (same logic as Ollama version)
             tool_results = []
-            for tool_name in suggested_tools:
-                tool = next((t for t in self.tools if t.name == tool_name), None)
-                if tool:
-                    try:
-                        logger.info(f"🔧 Executing {tool_name}")
-                        
-                        # Handle chart_data_provider with proper parameters
-                        if tool_name == "chart_data_provider":
-                            chart_type = "price_chart"
-                            symbol = "bitcoin"
+            try:
+                for tool_name in suggested_tools:
+                    tool = next((t for t in self.tools if t.name == tool_name), None)
+                    if tool:
+                        try:
+                            logger.info(f"🔧 Executing {tool_name}")
                             
-                            if "defi" in query.lower() or "tvl" in query.lower():
-                                chart_type = "defi_tvl"
-                            elif "market" in query.lower() or "overview" in query.lower():
-                                chart_type = "market_overview"
-                            elif "gas" in query.lower():
-                                chart_type = "gas_tracker"
-                                
-                            if "ethereum" in query.lower() or "eth" in query.lower():
-                                symbol = "ethereum"
-                            elif "bitcoin" in query.lower() or "btc" in query.lower():
+                            # Handle chart_data_provider with proper parameters
+                            if tool_name == "chart_data_provider":
+                                chart_type = "price_chart"
                                 symbol = "bitcoin"
                                 
-                            result = await tool._arun(chart_type=chart_type, symbol=symbol)
-                        else:
-                            result = await tool._arun(query)
-                            
-                        logger.info(f"📊 {tool_name} result preview: {str(result)[:200]}...")
-                        tool_results.append(f"=== {tool_name} Results ===\n{result}\n")
-                    except Exception as e:
-                        logger.error(f"Tool {tool_name} failed: {e}")
-                        tool_results.append(f"=== {tool_name} Error ===\nTool failed: {str(e)}\n")
+                                if "defi" in query.lower() or "tvl" in query.lower():
+                                    chart_type = "defi_tvl"
+                                elif "market" in query.lower() or "overview" in query.lower():
+                                    chart_type = "market_overview"
+                                elif "gas" in query.lower():
+                                    chart_type = "gas_tracker"
+                                    
+                                if "ethereum" in query.lower() or "eth" in query.lower():
+                                    symbol = "ethereum"
+                                elif "bitcoin" in query.lower() or "btc" in query.lower():
+                                    symbol = "bitcoin"
+                                    
+                                result = await tool._arun(chart_type=chart_type, symbol=symbol)
+                            else:
+                                result = await tool._arun(query)
+                                
+                            logger.info(f"📊 {tool_name} result preview: {str(result)[:200]}...")
+                            tool_results.append(f"=== {tool_name} Results ===\n{result}\n")
+                        except Exception as e:
+                            logger.error(f"Tool {tool_name} failed: {e}")
+                            tool_results.append(f"=== {tool_name} Error ===\nTool failed: {str(e)}\n")
+                        finally:
+                            # Cleanup tool session if available
+                            if hasattr(tool, 'cleanup'):
+                                try:
+                                    await tool.cleanup()
+                                except Exception:
+                                    pass  # Ignore cleanup errors
+            finally:
+                # Ensure all tools are cleaned up
+                for tool in self.tools:
+                    if hasattr(tool, 'cleanup'):
+                        try:
+                            await tool.cleanup()
+                        except Exception:
+                            pass
             
             # Step 3: Generate final response with Gemini
             context = "\n".join(tool_results) if tool_results else "No tool data available - provide general information."
@@ -474,7 +506,7 @@ Respond with only the tool names, comma-separated (no explanations)."""
                 "result": final_response,
                 "sources": [],
                 "metadata": {
-                    "llm_used": f"Gemini ({self.llm.model_name if hasattr(self.llm, 'model_name') else 'gemini-pro'})", 
+                    "llm_used": f"Gemini ({self.llm.model_name if hasattr(self.llm, 'model_name') else 'gemini-1.5-flash'})", 
                     "tools_used": suggested_tools,
                     "timestamp": datetime.now().isoformat()
                 }

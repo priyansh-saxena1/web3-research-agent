@@ -513,7 +513,7 @@ async def process_query_stream(request: QueryRequest):
                 await asyncio.sleep(0.5)
                 
                 # Send final result
-                yield f"data: {json.dumps({'type': 'result', 'data': result.dict(), 'progress': 100})}\n\n"
+                yield f"data: {json.dumps({'type': 'result', 'data': result.model_dump(), 'progress': 100})}\n\n"
                 
             except asyncio.TimeoutError:
                 processing_time = (datetime.now() - start_time).total_seconds()

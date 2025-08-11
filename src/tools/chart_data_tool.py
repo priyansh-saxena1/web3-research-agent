@@ -50,39 +50,44 @@ class ChartDataTool(BaseTool):
         return asyncio.run(self._arun(chart_type, symbol, timeframe, protocols, network))
     
     async def _arun(self, chart_type: str, symbol: str = None, timeframe: str = "30d", 
-                    protocols: List[str] = None, network: str = "ethereum") -> str:
-        """Provide chart data based on request"""
+                   protocols: List[str] = None, network: str = "ethereum") -> str:
+        """Asynchronous execution with proper session cleanup"""
         try:
             logger.info(f"Providing {chart_type} data for {symbol or 'general'}")
             
-            # Convert timeframe to days
-            days = self._parse_timeframe(timeframe)
-            
             if chart_type == "price_chart":
-                return await self._get_price_chart_data(symbol or "bitcoin", days)
+                if not symbol:
+                    symbol = "bitcoin"  # Default symbol
+                days = {"1d": 1, "7d": 7, "30d": 30, "90d": 90, "365d": 365}.get(timeframe, 30)
+                result = await self._get_price_chart_data(symbol, days)
             elif chart_type == "market_overview":
-                return await self._get_market_overview_data()
+                result = await self._get_market_overview_data()
             elif chart_type == "defi_tvl":
-                return await self._get_defi_tvl_data(protocols or ["uniswap", "aave", "compound"])
+                result = await self._get_defi_tvl_data(protocols)
             elif chart_type == "portfolio_pie":
-                return await self._get_portfolio_data()
+                result = await self._get_portfolio_data()
             elif chart_type == "gas_tracker":
-                return await self._get_gas_data(network)
+                result = await self._get_gas_tracker_data(network)
             else:
-                return json.dumps({
+                result = json.dumps({
                     "chart_type": "error",
                     "error": f"Unknown chart type: {chart_type}",
                     "available_types": ["price_chart", "market_overview", "defi_tvl", "portfolio_pie", "gas_tracker"]
                 })
-                
+            
+            return result
+            
         except Exception as e:
-            logger.error(f"Chart data error: {e}")
+            logger.error(f"Chart data generation failed: {e}")
             return json.dumps({
                 "chart_type": "error",
                 "error": str(e),
                 "message": "Failed to generate chart data"
             })
-    
+        finally:
+            # Ensure session cleanup
+            await self.cleanup()
+
     async def _get_price_chart_data(self, symbol: str, days: int) -> str:
         """Get price chart data with fallback for API failures"""
         try:
