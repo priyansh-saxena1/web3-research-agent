@@ -16,7 +16,7 @@ tags:
 - llama3
 pinned: false
 header: default
-short_description: AI-powered cryptocurrency research assistant with real-time data
+short_description: AI-powered crypto research with real-time blockchain data
 suggested_hardware: t4-medium
 ---
 
