@@ -1,11 +1,38 @@
+# Byte-compiled / optimized / DLL files
 __pycache__/
+*.py[cod]
+*$py.class
 *.pyc
 *.pyo
 *.pyd
+
+# Distribution / packaging
 .Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual environments
 env/
 venv/
 .venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Testing / coverage
 pip-log.txt
 pip-delete-this-directory.txt
 .tox/
@@ -15,15 +42,41 @@ pip-delete-this-directory.txt
 nosetests.xml
 coverage.xml
 *.cover
-*.log
-.git
-.mypy_cache
 .pytest_cache
 .hypothesis
 
+# Logs
+*.log
+
+# mypy
+.mypy_cache
+.git
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
 .DS_Store
+Thumbs.db
+
+# Environment files
 .env
 .flaskenv
 *.env
 
+# Application specific
 gradio_queue.db
+user_sessions/
+temp_data/
+cache/
+
+# Ollama models cache (large files)
+.ollama/
+
+# Local configuration
+config.local.*
+.env.local

@@ -1,7 +1,7 @@
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from pydantic import BaseModel
 import asyncio
 import json
@@ -29,6 +29,10 @@ app = FastAPI(
     version="2.0.0"
 )
 
+# Mount static files and templates
+app.mount("/static", StaticFiles(directory="static"), name="static")
+templates = Jinja2Templates(directory="templates")
+
 # Pydantic models
 class QueryRequest(BaseModel):
     query: str
@@ -47,12 +51,13 @@ class Web3CoPilotService:
         try:
             logger.info("Initializing Web3 Research Service...")
             
-            if config.GEMINI_API_KEY:
+            # Initialize research agent (supports Ollama-only mode)
+            if config.USE_OLLAMA_ONLY or config.GEMINI_API_KEY:
                 logger.info("AI research capabilities enabled")
                 self.agent = Web3ResearchAgent()
                 self.enabled = self.agent.enabled
             else:
-                logger.info("AI research capabilities disabled - API key required")
+                logger.info("AI research capabilities disabled - configuration required")
                 self.agent = None
                 self.enabled = False
             
@@ -384,979 +389,8 @@ service = Web3CoPilotService()
 
 @app.get("/", response_class=HTMLResponse)
 async def get_homepage(request: Request):
-    """Serve minimalist, professional interface"""
-    html_content = """
-    <!DOCTYPE html>
-    <html lang="en">
-    <head>
-        <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Web3 Research Co-Pilot</title>
-        <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 24 24%22><path fill=%22%2300d4aa%22 d=%22M12 2L2 7v10c0 5.5 3.8 7.7 9 9 5.2-1.3 9-3.5 9-9V7l-10-5z%22/></svg>">
-        <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-        <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
-        
-        <style>
-            :root {
-                --primary: #0066ff;
-                --primary-dark: #0052cc;
-                --accent: #00d4aa;
-                --background: #000000;
-                --surface: #111111;
-                --surface-elevated: #1a1a1a;
-                --text: #ffffff;
-                --text-secondary: #a0a0a0;
-                --text-muted: #666666;
-                --border: rgba(255, 255, 255, 0.08);
-                --border-focus: rgba(0, 102, 255, 0.3);
-                --shadow: rgba(0, 0, 0, 0.4);
-                --success: #00d4aa;
-                --warning: #ffa726;
-                --error: #f44336;
-            }
-            
-            [data-theme="light"] {
-                --background: #ffffff;
-                --surface: #f8f9fa;
-                --surface-elevated: #ffffff;
-                --text: #1a1a1a;
-                --text-secondary: #4a5568;
-                --text-muted: #718096;
-                --border: rgba(0, 0, 0, 0.08);
-                --border-focus: rgba(0, 102, 255, 0.3);
-                --shadow: rgba(0, 0, 0, 0.1);
-            }
-
-            * {
-                margin: 0;
-                padding: 0;
-                box-sizing: border-box;
-                transition: background-color 0.3s ease, color 0.3s ease, border-color 0.3s ease;
-            }
-
-            body {
-                font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', system-ui, sans-serif;
-                background: var(--background);
-                color: var(--text);
-                line-height: 1.5;
-                min-height: 100vh;
-                font-weight: 400;
-                -webkit-font-smoothing: antialiased;
-                -moz-osx-font-smoothing: grayscale;
-            }
-
-            .container {
-                max-width: 1000px;
-                margin: 0 auto;
-                padding: 2rem 1.5rem;
-            }
-
-            .header {
-                text-align: center;
-                margin-bottom: 2.5rem;
-            }
-            .header-content {
-                display: flex;
-                justify-content: space-between;
-                align-items: center;
-                max-width: 100%;
-            }
-            .header-text {
-                flex: 1;
-                text-align: center;
-            }
-            .theme-toggle {
-                background: var(--surface);
-                border: 1px solid var(--border);
-                border-radius: 8px;
-                padding: 0.75rem;
-                color: var(--text);
-                cursor: pointer;
-                transition: all 0.2s ease;
-                font-size: 1.1rem;
-                min-width: 44px;
-                height: 44px;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-            }
-            .theme-toggle:hover {
-                background: var(--surface-elevated);
-                border-color: var(--primary);
-                transform: translateY(-1px);
-            }
-
-            .header h1 {
-                font-size: 2.25rem;
-                font-weight: 600;
-                color: var(--text);
-                margin-bottom: 0.5rem;
-                letter-spacing: -0.025em;
-            }
-
-            .header .brand {
-                color: var(--primary);
-            }
-
-            .header p {
-                color: var(--text-secondary);
-                font-size: 1rem;
-                font-weight: 400;
-            }
-
-            .status {
-                background: var(--surface);
-                border: 1px solid var(--border);
-                border-radius: 12px;
-                padding: 1rem 1.5rem;
-                margin-bottom: 2rem;
-                text-align: center;
-                transition: all 0.2s ease;
-            }
-
-            .status.online {
-                border-color: var(--success);
-                background: linear-gradient(135deg, rgba(0, 212, 170, 0.05), rgba(0, 212, 170, 0.02));
-            }
-
-            .status.offline {
-                border-color: var(--error);
-                background: linear-gradient(135deg, rgba(244, 67, 54, 0.05), rgba(244, 67, 54, 0.02));
-            }
-
-            .status.checking {
-                border-color: var(--warning);
-                background: linear-gradient(135deg, rgba(255, 167, 38, 0.05), rgba(255, 167, 38, 0.02));
-                animation: pulse 2s infinite;
-            }
-
-            @keyframes pulse {
-                0%, 100% { opacity: 1; }
-                50% { opacity: 0.8; }
-            }
-
-            .chat-interface {
-                background: var(--surface);
-                border: 1px solid var(--border);
-                border-radius: 16px;
-                overflow: hidden;
-                margin-bottom: 2rem;
-                backdrop-filter: blur(20px);
-            }
-
-            .chat-messages {
-                height: 480px;
-                overflow-y: auto;
-                padding: 2rem;
-                background: linear-gradient(180deg, var(--background), var(--surface));
-            }
-
-            .chat-messages::-webkit-scrollbar {
-                width: 3px;
-            }
-
-            .chat-messages::-webkit-scrollbar-track {
-                background: transparent;
-            }
-
-            .chat-messages::-webkit-scrollbar-thumb {
-                background: var(--border);
-                border-radius: 2px;
-            }
-
-            .message {
-                margin-bottom: 2rem;
-                opacity: 0;
-                animation: messageSlide 0.4s cubic-bezier(0.2, 0, 0.2, 1) forwards;
-            }
-
-            @keyframes messageSlide {
-                from { 
-                    opacity: 0; 
-                    transform: translateY(20px) scale(0.98); 
-                }
-                to { 
-                    opacity: 1; 
-                    transform: translateY(0) scale(1); 
-                }
-            }
-
-            .message.user {
-                text-align: right;
-            }
-
-            .message.assistant {
-                text-align: left;
-            }
-
-            .message-content {
-                display: inline-block;
-                max-width: 75%;
-                padding: 1.25rem 1.5rem;
-                border-radius: 24px;
-                font-size: 0.95rem;
-                line-height: 1.6;
-                position: relative;
-            }
-
-            .message.user .message-content {
-                background: linear-gradient(135deg, var(--primary), var(--primary-dark));
-                color: #ffffff;
-                border-bottom-right-radius: 8px;
-                box-shadow: 0 4px 12px rgba(0, 102, 255, 0.2);
-            }
-
-            .message.assistant .message-content {
-                background: var(--surface-elevated);
-                color: var(--text);
-                border-bottom-left-radius: 8px;
-                border: 1px solid var(--border);
-            }
-            .message-content h1, .message-content h2, .message-content h3, .message-content h4 {
-                color: var(--accent);
-                margin: 1.25rem 0 0.5rem 0;
-                font-weight: 600;
-                line-height: 1.3;
-            }
-            .message-content h1 { font-size: 1.25rem; }
-            .message-content h2 { font-size: 1.1rem; }
-            .message-content h3 { font-size: 1rem; }
-            .message-content h4 { font-size: 0.95rem; }
-            .message-content p {
-                margin: 0.75rem 0;
-                line-height: 1.65;
-                color: var(--text);
-            }
-            .message-content ul, .message-content ol {
-                margin: 0.75rem 0;
-                padding-left: 1.5rem;
-                line-height: 1.6;
-            }
-            .message-content li {
-                margin: 0.3rem 0;
-                line-height: 1.6;
-            }
-            .message-content table {
-                width: 100%;
-                border-collapse: collapse;
-                margin: 1rem 0;
-                font-size: 0.9rem;
-            }
-            .message-content th, .message-content td {
-                border: 1px solid var(--border);
-                padding: 0.5rem 0.75rem;
-                text-align: left;
-            }
-            .message-content th {
-                background: var(--surface);
-                font-weight: 600;
-                color: var(--accent);
-            }
-            .message-content strong {
-                color: var(--accent);
-                font-weight: 600;
-            }
-            .message-content em {
-                color: var(--text-secondary);
-                font-style: italic;
-            }
-            .message-content code {
-                background: rgba(0, 102, 255, 0.12);
-                border: 1px solid rgba(0, 102, 255, 0.25);
-                padding: 0.2rem 0.45rem;
-                border-radius: 4px;
-                font-family: 'SF Mono', Consolas, 'Courier New', monospace;
-                font-size: 0.85rem;
-                color: var(--accent);
-                font-weight: 500;
-            }
-            .message-content pre {
-                background: var(--background);
-                border: 1px solid var(--border);
-                border-radius: 8px;
-                padding: 1rem;
-                margin: 1rem 0;
-                overflow-x: auto;
-                font-family: 'SF Mono', Consolas, 'Courier New', monospace;
-                font-size: 0.85rem;
-                line-height: 1.5;
-            }
-            .message-content pre code {
-                background: none;
-                border: none;
-                padding: 0;
-                font-size: inherit;
-            }
-            .message-content blockquote {
-                border-left: 3px solid var(--accent);
-                padding-left: 1rem;
-                margin: 1rem 0;
-                color: var(--text-secondary);
-                font-style: italic;
-                background: rgba(0, 212, 170, 0.05);
-                padding: 0.75rem 0 0.75rem 1rem;
-                border-radius: 0 4px 4px 0;
-            }
-            .message-content a {
-                color: var(--accent);
-                text-decoration: none;
-                border-bottom: 1px solid transparent;
-                transition: border-color 0.2s ease;
-            }
-            .message-content a:hover {
-                border-bottom-color: var(--accent);
-            }
-            .message.user .message-content {
-                word-wrap: break-word;
-                white-space: pre-wrap;
-            }
-            .message.user .message-content strong,
-            .message.user .message-content code {
-                color: rgba(255, 255, 255, 0.9);
-            }
-
-            .message-meta {
-                font-size: 0.75rem;
-                color: var(--text-muted);
-                margin-top: 0.5rem;
-                font-weight: 500;
-            }
-
-            .sources {
-                margin-top: 1rem;
-                padding-top: 1rem;
-                border-top: 1px solid var(--border);
-                font-size: 0.8rem;
-                color: var(--text-secondary);
-            }
-
-            .sources span {
-                display: inline-block;
-                background: rgba(0, 102, 255, 0.1);
-                border: 1px solid rgba(0, 102, 255, 0.2);
-                padding: 0.25rem 0.75rem;
-                border-radius: 6px;
-                margin: 0.25rem 0.5rem 0.25rem 0;
-                font-weight: 500;
-                font-size: 0.75rem;
-            }
-
-            .input-area {
-                padding: 2rem;
-                background: linear-gradient(180deg, var(--surface), var(--surface-elevated));
-                border-top: 1px solid var(--border);
-            }
-
-            .input-container {
-                display: flex;
-                gap: 1rem;
-                align-items: stretch;
-            }
-
-            .input-field {
-                flex: 1;
-                padding: 1rem 1.5rem;
-                background: var(--background);
-                border: 2px solid var(--border);
-                border-radius: 28px;
-                color: var(--text);
-                font-size: 0.95rem;
-                outline: none;
-                transition: all 0.2s cubic-bezier(0.2, 0, 0.2, 1);
-                font-weight: 400;
-            }
-
-            .input-field:focus {
-                border-color: var(--primary);
-                box-shadow: 0 0 0 4px var(--border-focus);
-                background: var(--surface);
-            }
-
-            .input-field::placeholder {
-                color: var(--text-muted);
-                font-weight: 400;
-            }
-
-            .send-button {
-                padding: 1rem 2rem;
-                background: linear-gradient(135deg, var(--primary), var(--primary-dark));
-                color: #ffffff;
-                border: none;
-                border-radius: 28px;
-                font-weight: 600;
-                cursor: pointer;
-                transition: all 0.2s cubic-bezier(0.2, 0, 0.2, 1);
-                font-size: 0.95rem;
-                box-shadow: 0 4px 12px rgba(0, 102, 255, 0.2);
-            }
-
-            .send-button:hover:not(:disabled) {
-                transform: translateY(-2px);
-                box-shadow: 0 8px 24px rgba(0, 102, 255, 0.3);
-            }
-
-            .send-button:active {
-                transform: translateY(0);
-            }
-
-            .send-button:disabled {
-                opacity: 0.6;
-                cursor: not-allowed;
-                transform: none;
-                box-shadow: 0 4px 12px rgba(0, 102, 255, 0.1);
-            }
-
-            .examples {
-                display: grid;
-                grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-                gap: 1rem;
-                margin-top: 1rem;
-            }
-
-            .example {
-                background: linear-gradient(135deg, var(--surface), var(--surface-elevated));
-                border: 1px solid var(--border);
-                border-radius: 12px;
-                padding: 1.5rem;
-                cursor: pointer;
-                transition: all 0.3s cubic-bezier(0.2, 0, 0.2, 1);
-                position: relative;
-                overflow: hidden;
-            }
-
-            .example::before {
-                content: '';
-                position: absolute;
-                top: 0;
-                left: -100%;
-                width: 100%;
-                height: 100%;
-                background: linear-gradient(90deg, transparent, rgba(0, 102, 255, 0.05), transparent);
-                transition: left 0.5s ease;
-            }
-
-            .example:hover::before {
-                left: 100%;
-            }
-
-            .example:hover {
-                border-color: var(--primary);
-                transform: translateY(-4px);
-                box-shadow: 0 12px 32px rgba(0, 0, 0, 0.2);
-                background: linear-gradient(135deg, var(--surface-elevated), var(--surface));
-            }
-
-            .example-title {
-                font-weight: 600;
-                color: var(--text);
-                margin-bottom: 0.5rem;
-                font-size: 0.95rem;
-                display: flex;
-                align-items: center;
-                gap: 0.5rem;
-            }
-            .example-title i {
-                color: var(--primary);
-                font-size: 1rem;
-                width: 20px;
-                text-align: center;
-            }
-
-            .example-desc {
-                font-size: 0.85rem;
-                color: var(--text-secondary);
-                font-weight: 400;
-            }
-
-            .loading {
-                display: inline-flex;
-                align-items: center;
-                gap: 0.5rem;
-                color: var(--text-secondary);
-                font-weight: 500;
-            }
-
-            .loading::after {
-                content: '';
-                width: 14px;
-                height: 14px;
-                border: 2px solid currentColor;
-                border-top-color: transparent;
-                border-radius: 50%;
-                animation: spin 1s linear infinite;
-            }
-
-            @keyframes spin {
-                to { transform: rotate(360deg); }
-            }
-            .loading-indicator {
-                display: none;
-                background: var(--surface-elevated);
-                border: 1px solid var(--border);
-                border-radius: 12px;
-                padding: 1.5rem;
-                margin: 1rem 0;
-                text-align: center;
-                color: var(--text-secondary);
-            }
-            .loading-indicator.active {
-                display: block;
-            }
-            .loading-spinner {
-                display: inline-block;
-                width: 20px;
-                height: 20px;
-                border: 2px solid var(--border);
-                border-top-color: var(--primary);
-                border-radius: 50%;
-                animation: spin 1s linear infinite;
-                margin-right: 0.5rem;
-            }
-            .status-indicator {
-                position: fixed;
-                top: 20px;
-                right: 20px;
-                background: var(--surface);
-                border: 1px solid var(--border);
-                border-radius: 8px;
-                padding: 0.75rem 1rem;
-                font-size: 0.85rem;
-                color: var(--text-secondary);
-                opacity: 0;
-                transform: translateY(-10px);
-                transition: all 0.3s ease;
-                z-index: 1000;
-            }
-            .status-indicator.show {
-                opacity: 1;
-                transform: translateY(0);
-            }
-            .status-indicator.processing {
-                border-color: var(--primary);
-                background: linear-gradient(135deg, rgba(0, 102, 255, 0.05), rgba(0, 102, 255, 0.02));
-            }
-
-            .visualization-container {
-                margin: 1.5rem 0;
-                background: var(--surface-elevated);
-                border-radius: 12px;
-                padding: 1.5rem;
-                border: 1px solid var(--border);
-            }
-
-            .welcome {
-                text-align: center;
-                padding: 4rem 2rem;
-                color: var(--text-secondary);
-            }
-
-            .welcome h3 {
-                font-size: 1.25rem;
-                font-weight: 600;
-                margin-bottom: 0.5rem;
-                color: var(--text);
-            }
-
-            .welcome p {
-                font-size: 0.95rem;
-                font-weight: 400;
-            }
-
-            @media (max-width: 768px) {
-                .container {
-                    padding: 1rem;
-                }
-                
-                .header-content {
-                    flex-direction: column;
-                    gap: 1rem;
-                }
-                
-                .header-text {
-                    text-align: center;
-                }
-                
-                .header h1 {
-                    font-size: 1.75rem;
-                }
-                
-                .chat-messages {
-                    height: 400px;
-                    padding: 1.5rem;
-                }
-                
-                .message-content {
-                    max-width: 85%;
-                    padding: 1rem 1.25rem;
-                }
-                
-                .input-area {
-                    padding: 1.5rem;
-                }
-                
-                .input-container {
-                    flex-direction: column;
-                    gap: 0.75rem;
-                }
-                
-                .send-button {
-                    align-self: stretch;
-                }
-                
-                .examples {
-                    grid-template-columns: 1fr;
-                }
-            }
-        </style>
-    </head>
-    <body>
-        <div id="statusIndicator" class="status-indicator">
-            <span id="statusText">Ready</span>
-        </div>
-        
-        <div class="container">
-            <div class="header">
-                <div class="header-content">
-                    <div class="header-text">
-                        <h1><span class="brand">Web3</span> Research Co-Pilot</h1>
-                        <p>Professional cryptocurrency analysis and market intelligence</p>
-                    </div>
-                    <button id="themeToggle" class="theme-toggle" title="Toggle theme">
-                        <i class="fas fa-moon"></i>
-                    </button>
-                </div>
-            </div>
-
-            <div id="status" class="status checking">
-                <span>Initializing research systems...</span>
-            </div>
-
-            <div class="chat-interface">
-                <div id="chatMessages" class="chat-messages">
-                    <div class="welcome">
-                        <h3>Welcome to Web3 Research Co-Pilot</h3>
-                        <p>Ask about market trends, DeFi protocols, or blockchain analytics</p>
-                    </div>
-                </div>
-                <div id="loadingIndicator" class="loading-indicator">
-                    <div class="loading-spinner"></div>
-                    <span id="loadingText">Processing your research query...</span>
-                </div>
-                <div class="input-area">
-                    <div class="input-container">
-                        <input 
-                            type="text" 
-                            id="queryInput" 
-                            class="input-field"
-                            placeholder="Research Bitcoin trends, analyze DeFi yields, compare protocols..."
-                            maxlength="500"
-                        >
-                        <button id="sendBtn" class="send-button">Research</button>
-                    </div>
-                </div>
-            </div>
-
-            <div class="examples">
-                <div class="example" onclick="setQuery('Analyze Bitcoin price trends and institutional adoption patterns')">
-                    <div class="example-title"><i class="fas fa-chart-line"></i> Market Analysis</div>
-                    <div class="example-desc">Bitcoin trends, institutional flows, and market sentiment analysis</div>
-                </div>
-                <div class="example" onclick="setQuery('Compare top DeFi protocols by TVL, yield, and risk metrics across chains')">
-                    <div class="example-title"><i class="fas fa-coins"></i> DeFi Intelligence</div>
-                    <div class="example-desc">Protocol comparison, yield analysis, and cross-chain opportunities</div>
-                </div>
-                <div class="example" onclick="setQuery('Evaluate Ethereum Layer 2 scaling solutions and adoption metrics')">
-                    <div class="example-title"><i class="fas fa-layer-group"></i> Layer 2 Research</div>
-                    <div class="example-desc">Scaling solutions, transaction costs, and ecosystem growth</div>
-                </div>
-                <div class="example" onclick="setQuery('Find optimal yield farming strategies with risk assessment')">
-                    <div class="example-title"><i class="fas fa-seedling"></i> Yield Optimization</div>
-                    <div class="example-desc">Cross-chain opportunities, APY tracking, and risk analysis</div>
-                </div>
-                <div class="example" onclick="setQuery('Track whale movements and large Bitcoin transactions today')">
-                    <div class="example-title"><i class="fas fa-fish"></i> Whale Tracking</div>
-                    <div class="example-desc">Large transactions, wallet analysis, and market impact</div>
-                </div>
-                <div class="example" onclick="setQuery('Analyze gas fees and network congestion across blockchains')">
-                    <div class="example-title"><i class="fas fa-tachometer-alt"></i> Network Analytics</div>
-                    <div class="example-desc">Gas prices, network utilization, and cost comparisons</div>
-                </div>
-            </div>
-        </div>
-
-        <script>
-            let chatHistory = [];
-            let messageCount = 0;
-
-            async function checkStatus() {
-                try {
-                    const response = await fetch('/status');
-                    const status = await response.json();
-                    
-                    const statusDiv = document.getElementById('status');
-                    
-                    if (status.enabled && status.gemini_configured) {
-                        statusDiv.className = 'status online';
-                        statusDiv.innerHTML = `
-                            <span>Research systems online</span>
-                            <div style="margin-top: 0.5rem; font-size: 0.85rem; opacity: 0.8;">
-                                Tools: ${status.tools_available.join(' • ')}
-                            </div>
-                        `;
-                    } else {
-                        statusDiv.className = 'status offline';
-                        statusDiv.innerHTML = `
-                            <span>Limited mode - Configure GEMINI_API_KEY for full functionality</span>
-                            <div style="margin-top: 0.5rem; font-size: 0.85rem; opacity: 0.8;">
-                                Available: ${status.tools_available.join(' • ')}
-                            </div>
-                        `;
-                    }
-                } catch (error) {
-                    const statusDiv = document.getElementById('status');
-                    statusDiv.className = 'status offline';
-                    statusDiv.innerHTML = '<span>Connection error</span>';
-                }
-            }
-
-            async function sendQuery() {
-                const input = document.getElementById('queryInput');
-                const sendBtn = document.getElementById('sendBtn');
-                const loadingIndicator = document.getElementById('loadingIndicator');
-                const statusIndicator = document.getElementById('statusIndicator');
-                const statusText = document.getElementById('statusText');
-                const query = input.value.trim();
-
-                if (!query) {
-                    showStatus('Please enter a research query', 'warning');
-                    return;
-                }
-
-                console.log('Sending research query');
-                addMessage('user', query);
-                input.value = '';
-
-                // Update UI states
-                sendBtn.disabled = true;
-                sendBtn.innerHTML = '<span class="loading">Processing</span>';
-                loadingIndicator.classList.add('active');
-                showStatus('Processing research query...', 'processing');
-
-                try {
-                    console.log('Making API request...');
-                    const requestStart = Date.now();
-                    
-                    const response = await fetch('/query', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ query, chat_history: chatHistory })
-                    });
-
-                    const requestTime = Date.now() - requestStart;
-                    console.log(`Request completed in ${requestTime}ms`);
-
-                    if (!response.ok) {
-                        throw new Error(`Request failed with status ${response.status}`);
-                    }
-
-                    const result = await response.json();
-                    console.log('Response received successfully');
-
-                    if (result.success) {
-                        addMessage('assistant', result.response, result.sources, result.visualizations);
-                        showStatus('Research complete', 'success');
-                        console.log('Analysis completed successfully');
-                    } else {
-                        console.log('Analysis request failed');
-                        addMessage('assistant', result.response || 'Analysis temporarily unavailable. Please try again.', [], []);
-                        showStatus('Request failed', 'error');
-                    }
-                } catch (error) {
-                    console.error('Request error occurred');
-                    addMessage('assistant', 'Connection error. Please check your network and try again.');
-                    showStatus('Connection error', 'error');
-                } finally {
-                    // Reset UI states
-                    sendBtn.disabled = false;
-                    sendBtn.innerHTML = 'Research';
-                    loadingIndicator.classList.remove('active');
-                    input.focus();
-                    console.log('Request completed');
-                    
-                    // Hide status after delay
-                    setTimeout(() => hideStatus(), 3000);
-                }
-            }
-
-            function addMessage(sender, content, sources = [], visualizations = []) {
-                const messagesDiv = document.getElementById('chatMessages');
-                
-                // Clear welcome message
-                if (messageCount === 0) {
-                    messagesDiv.innerHTML = '';
-                }
-                messageCount++;
-
-                const messageDiv = document.createElement('div');
-                messageDiv.className = `message ${sender}`;
-
-                let sourcesHtml = '';
-                if (sources && sources.length > 0) {
-                    sourcesHtml = `
-                        <div class="sources">
-                            Sources: ${sources.map(s => `<span>${s}</span>`).join('')}
-                        </div>
-                    `;
-                }
-
-                let visualizationHtml = '';
-                if (visualizations && visualizations.length > 0) {
-                    console.log('Processing visualizations:', visualizations.length);
-                    visualizationHtml = visualizations.map((viz, index) => {
-                        console.log(`Visualization ${index}:`, viz.substring(0, 100));
-                        return `<div class="visualization-container" id="viz-${Date.now()}-${index}">${viz}</div>`;
-                    }).join('');
-                }
-
-                // Format content based on sender
-                let formattedContent = content;
-                if (sender === 'assistant') {
-                    // Convert markdown to HTML for assistant responses
-                    try {
-                        formattedContent = marked.parse(content);
-                    } catch (error) {
-                        // Fallback to basic formatting if marked.js fails
-                        console.warn('Markdown parsing failed, using fallback:', error);
-                        formattedContent = content
-                            .replace(/\\n/g, '<br>')
-                            .replace(/\\*\\*(.*?)\\*\\*/g, '<strong>$1</strong>')
-                            .replace(/\\*(.*?)\\*/g, '<em>$1</em>')
-                            .replace(/`(.*?)`/g, '<code>$1</code>');
-                    }
-                } else {
-                    // Apply markdown parsing to user messages too
-                    try {
-                        formattedContent = marked.parse(content);
-                    } catch (error) {
-                        formattedContent = content.replace(/\\n/g, '<br>');
-                    }
-                }
-
-                messageDiv.innerHTML = `
-                    <div class="message-content">
-                        ${formattedContent}
-                        ${sourcesHtml}
-                    </div>
-                    ${visualizationHtml}
-                    <div class="message-meta">${new Date().toLocaleTimeString()}</div>
-                `;
-
-                messagesDiv.appendChild(messageDiv);
-                messagesDiv.scrollTop = messagesDiv.scrollHeight;
-
-                // Execute any scripts in the visualizations after DOM insertion
-                if (visualizations && visualizations.length > 0) {
-                    console.log('Executing visualization scripts...');
-                    setTimeout(() => {
-                        const scripts = messageDiv.querySelectorAll('script');
-                        console.log(`Found ${scripts.length} scripts to execute`);
-                        
-                        scripts.forEach((script, index) => {
-                            console.log(`Executing script ${index}:`, script.textContent.substring(0, 200) + '...');
-                            try {
-                                // Execute script in global context using Function constructor
-                                const scriptFunction = new Function(script.textContent);
-                                scriptFunction.call(window);
-                                console.log(`Script ${index} executed successfully`);
-                            } catch (error) {
-                                console.error(`Script ${index} execution error:`, error);
-                                console.error(`Script content preview:`, script.textContent.substring(0, 500));
-                            }
-                        });
-                        console.log('All visualization scripts executed');
-                    }, 100);
-                }
-
-                chatHistory.push({ role: sender, content });
-                if (chatHistory.length > 20) chatHistory = chatHistory.slice(-20);
-            }
-
-            function setQuery(query) {
-                document.getElementById('queryInput').value = query;
-                setTimeout(() => sendQuery(), 100);
-            }
-            
-            // Status management functions
-            function showStatus(message, type = 'info') {
-                const statusIndicator = document.getElementById('statusIndicator');
-                const statusText = document.getElementById('statusText');
-                
-                statusText.textContent = message;
-                statusIndicator.className = `status-indicator show ${type}`;
-            }
-            
-            function hideStatus() {
-                const statusIndicator = document.getElementById('statusIndicator');
-                statusIndicator.classList.remove('show');
-            }
-
-            // Theme toggle functionality
-            function toggleTheme() {
-                const currentTheme = document.documentElement.getAttribute('data-theme');
-                const newTheme = currentTheme === 'light' ? 'dark' : 'light';
-                const themeIcon = document.querySelector('#themeToggle i');
-                
-                document.documentElement.setAttribute('data-theme', newTheme);
-                localStorage.setItem('theme', newTheme);
-                
-                // Update icon
-                if (newTheme === 'light') {
-                    themeIcon.className = 'fas fa-sun';
-                } else {
-                    themeIcon.className = 'fas fa-moon';
-                }
-            }
-            
-            // Initialize theme
-            function initializeTheme() {
-                const savedTheme = localStorage.getItem('theme') || 'dark';
-                const themeIcon = document.querySelector('#themeToggle i');
-                
-                document.documentElement.setAttribute('data-theme', savedTheme);
-                
-                if (savedTheme === 'light') {
-                    themeIcon.className = 'fas fa-sun';
-                } else {
-                    themeIcon.className = 'fas fa-moon';
-                }
-            }
-
-            // Event listeners
-            document.getElementById('queryInput').addEventListener('keypress', (e) => {
-                if (e.key === 'Enter') sendQuery();
-            });
-
-            document.getElementById('sendBtn').addEventListener('click', (e) => {
-                console.log('Research button clicked');
-                e.preventDefault();
-                sendQuery();
-            });
-            
-            document.getElementById('themeToggle').addEventListener('click', toggleTheme);
-
-            // Initialize
-            document.addEventListener('DOMContentLoaded', () => {
-                console.log('Application initialized');
-                initializeTheme();
-                checkStatus();
-                document.getElementById('queryInput').focus();
-            });
-        </script>
-    </body>
-    </html>
-    """
-    return HTMLResponse(content=html_content)
-
+    """Serve the main interface using templates"""
+    return templates.TemplateResponse("index.html", {"request": request})
 @app.get("/status")
 async def get_status():
     """System status endpoint"""
@@ -1403,6 +437,128 @@ async def process_query(request: QueryRequest):
             response="We're experiencing technical difficulties. Please try again in a moment.",
             error="System temporarily unavailable"
         )
+
+@app.post("/query/stream")
+async def process_query_stream(request: QueryRequest):
+    """Process research query with real-time progress updates"""
+    query_preview = request.query[:50] + "..." if len(request.query) > 50 else request.query
+    logger.info(f"Streaming query received: {query_preview}")
+    
+    async def generate_progress():
+        try:
+            # Send initial status
+            yield f"data: {json.dumps({'type': 'status', 'message': 'Initializing research...', 'progress': 10})}\n\n"
+            await asyncio.sleep(0.1)
+            
+            # Send tool selection status
+            yield f"data: {json.dumps({'type': 'status', 'message': 'Analyzing query and selecting tools...', 'progress': 20})}\n\n"
+            await asyncio.sleep(0.5)
+            
+            # Send tools status
+            if service.agent and service.agent.enabled:
+                tools = [tool.name for tool in service.agent.tools]
+                yield f"data: {json.dumps({'type': 'tools', 'message': f'Available tools: {tools}', 'progress': 30})}\n\n"
+                await asyncio.sleep(0.5)
+            
+            # Send processing status
+            yield f"data: {json.dumps({'type': 'status', 'message': 'Executing tools and gathering data...', 'progress': 50})}\n\n"
+            await asyncio.sleep(0.5)
+            
+            # Send Ollama processing status with heartbeats
+            yield f"data: {json.dumps({'type': 'status', 'message': 'Ollama is analyzing data and generating response...', 'progress': 70})}\n\n"
+            await asyncio.sleep(1.0)
+            
+            # Send additional heartbeat messages during processing
+            yield f"data: {json.dumps({'type': 'status', 'message': 'Ollama is thinking deeply about your query...', 'progress': 75})}\n\n"
+            await asyncio.sleep(2.0)
+            
+            yield f"data: {json.dumps({'type': 'status', 'message': 'Still processing... Ollama generates detailed responses', 'progress': 80})}\n\n"
+            await asyncio.sleep(3.0)
+            
+            # Process the actual query with timeout and periodic heartbeats
+            start_time = datetime.now()
+            
+            # Create a task for the query processing
+            query_task = asyncio.create_task(service.process_query(request.query))
+            
+            try:
+                # Send periodic heartbeats while waiting for Ollama
+                heartbeat_count = 0
+                while not query_task.done():
+                    try:
+                        # Wait for either completion or timeout
+                        result = await asyncio.wait_for(asyncio.shield(query_task), timeout=10.0)
+                        break  # Query completed
+                    except asyncio.TimeoutError:
+                        # Send heartbeat every 10 seconds
+                        heartbeat_count += 1
+                        elapsed = (datetime.now() - start_time).total_seconds()
+                        
+                        if elapsed > 300:  # 5 minute hard timeout
+                            query_task.cancel()
+                            raise asyncio.TimeoutError("Hard timeout reached")
+                        
+                        progress = min(85 + (heartbeat_count * 2), 95)  # Progress slowly from 85 to 95
+                        yield f"data: {json.dumps({'type': 'status', 'message': f'Ollama is still working... ({elapsed:.0f}s elapsed)', 'progress': progress})}\n\n"
+                        
+                # If we get here, the query completed successfully
+                result = query_task.result()
+                processing_time = (datetime.now() - start_time).total_seconds()
+                
+                # Send completion status
+                yield f"data: {json.dumps({'type': 'status', 'message': f'Analysis complete ({processing_time:.1f}s)', 'progress': 90})}\n\n"
+                await asyncio.sleep(0.5)
+                
+                # Send final result
+                yield f"data: {json.dumps({'type': 'result', 'data': result.dict(), 'progress': 100})}\n\n"
+                
+            except asyncio.TimeoutError:
+                processing_time = (datetime.now() - start_time).total_seconds()
+                logger.error(f"Query processing timed out after {processing_time:.1f}s")
+                
+                # Send timeout result with available data
+                yield f"data: {json.dumps({'type': 'result', 'data': {
+                    'success': False,
+                    'response': 'Analysis timed out, but tools successfully gathered data. The system collected cryptocurrency prices, DeFi protocol information, and blockchain data. Please try a simpler query or try again.',
+                    'sources': [],
+                    'metadata': {'timeout': True, 'processing_time': processing_time},
+                    'visualizations': [],
+                    'error': 'Processing timeout'
+                }.copy(), 'progress': 100})}\n\n"
+                
+            except Exception as query_error:
+                processing_time = (datetime.now() - start_time).total_seconds()
+                logger.error(f"Query processing failed: {query_error}")
+                
+                # Send error result
+                yield f"data: {json.dumps({'type': 'result', 'data': {
+                    'success': False,
+                    'response': f'Analysis failed: {str(query_error)}. The system was able to gather some data but encountered an error during final processing.',
+                    'sources': [],
+                    'metadata': {'error': True, 'processing_time': processing_time},
+                    'visualizations': [],
+                    'error': str(query_error)
+                }.copy(), 'progress': 100})}\n\n"
+            
+            # Send completion signal
+            yield f"data: {json.dumps({'type': 'complete'})}\n\n"
+            
+        except Exception as e:
+            logger.error(f"Streaming error: {e}")
+            yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
+    
+    return StreamingResponse(
+        generate_progress(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "Content-Type": "text/event-stream",
+            "X-Accel-Buffering": "no",  # Disable buffering for nginx
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Headers": "Content-Type",
+        }
+    )
 
 @app.get("/health")
 async def health_check():

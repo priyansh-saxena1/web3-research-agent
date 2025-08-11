@@ -84,8 +84,69 @@ class ChartDataTool(BaseTool):
             })
     
     async def _get_price_chart_data(self, symbol: str, days: int) -> str:
-        """Get price chart data"""
-        # Generate realistic mock price data
+        """Get real price chart data from CoinGecko API"""
+        try:
+            # Import the CoinGecko tool to get real data
+            from src.tools.coingecko_tool import CoinGeckoTool
+            
+            coingecko = CoinGeckoTool()
+            
+            # Map common symbols to CoinGecko IDs
+            symbol_map = {
+                "btc": "bitcoin", "bitcoin": "bitcoin",
+                "eth": "ethereum", "ethereum": "ethereum", 
+                "sol": "solana", "solana": "solana",
+                "ada": "cardano", "cardano": "cardano",
+                "bnb": "binancecoin", "binance": "binancecoin",
+                "matic": "matic-network", "polygon": "matic-network",
+                "avax": "avalanche-2", "avalanche": "avalanche-2",
+                "dot": "polkadot", "polkadot": "polkadot",
+                "link": "chainlink", "chainlink": "chainlink",
+                "uni": "uniswap", "uniswap": "uniswap"
+            }
+            
+            coin_id = symbol_map.get(symbol.lower(), symbol.lower())
+            
+            # Get price history from CoinGecko
+            url = f"https://api.coingecko.com/api/v3/coins/{coin_id}/market_chart"
+            params = {"vs_currency": "usd", "days": days, "interval": "daily" if days > 90 else "hourly"}
+            
+            data = await coingecko.make_request(url, params=params)
+            
+            if not data or "prices" not in data:
+                # Fallback to mock data if API fails
+                logger.warning(f"CoinGecko API failed for {symbol}, using fallback data")
+                return await self._get_mock_price_data(symbol, days)
+            
+            # Format the real data
+            price_data = data.get("prices", [])
+            volume_data = data.get("total_volumes", [])
+            
+            # Get current coin info
+            coin_info = await coingecko.make_request(f"https://api.coingecko.com/api/v3/coins/{coin_id}")
+            coin_name = coin_info.get("name", symbol.title()) if coin_info else symbol.title()
+            
+            return json.dumps({
+                "chart_type": "price_chart", 
+                "data": {
+                    "prices": price_data,
+                    "total_volumes": volume_data,
+                    "symbol": symbol.upper(),
+                    "name": coin_name
+                },
+                "config": {
+                    "title": f"{coin_name} Price Analysis ({days} days)",
+                    "timeframe": f"{days}d", 
+                    "currency": "USD"
+                }
+            })
+            
+        except Exception as e:
+            logger.error(f"Real price data failed: {e}")
+            return await self._get_mock_price_data(symbol, days)
+    
+    async def _get_mock_price_data(self, symbol: str, days: int) -> str:
+        """Fallback mock price data"""
         import time
         import random
         
@@ -97,13 +158,10 @@ class ChartDataTool(BaseTool):
         
         for i in range(days):
             timestamp = base_timestamp + (i * 24 * 60 * 60 * 1000)
-            
-            # Generate realistic price movement
-            price_change = random.uniform(-0.05, 0.05)  # ±5% daily change
+            price_change = random.uniform(-0.05, 0.05)
             price = base_price * (1 + price_change * i / days)
-            price += random.uniform(-price*0.02, price*0.02)  # Daily volatility
-            
-            volume = random.uniform(1000000000, 5000000000)  # Random volume
+            price += random.uniform(-price*0.02, price*0.02)
+            volume = random.uniform(1000000000, 5000000000)
             
             price_data.append([timestamp, round(price, 2)])
             volume_data.append([timestamp, int(volume)])
@@ -124,7 +182,56 @@ class ChartDataTool(BaseTool):
         })
     
     async def _get_market_overview_data(self) -> str:
-        """Get market overview data"""
+        """Get real market overview data from CoinGecko API"""
+        try:
+            from src.tools.coingecko_tool import CoinGeckoTool
+            
+            coingecko = CoinGeckoTool()
+            
+            # Get top market cap coins
+            url = "https://api.coingecko.com/api/v3/coins/markets"
+            params = {
+                "vs_currency": "usd",
+                "order": "market_cap_desc", 
+                "per_page": 10,
+                "page": 1,
+                "sparkline": False
+            }
+            
+            data = await coingecko.make_request(url, params=params)
+            
+            if not data:
+                logger.warning("CoinGecko market data failed, using fallback")
+                return await self._get_mock_market_data()
+            
+            # Format real market data
+            coins = []
+            for coin in data[:10]:
+                coins.append({
+                    "name": coin.get("name", "Unknown"),
+                    "symbol": coin.get("symbol", "").upper(),
+                    "current_price": coin.get("current_price", 0),
+                    "market_cap_rank": coin.get("market_cap_rank", 0),
+                    "price_change_percentage_24h": coin.get("price_change_percentage_24h", 0),
+                    "market_cap": coin.get("market_cap", 0),
+                    "total_volume": coin.get("total_volume", 0)
+                })
+            
+            return json.dumps({
+                "chart_type": "market_overview",
+                "data": {"coins": coins},
+                "config": {
+                    "title": "Top Cryptocurrencies Market Overview",
+                    "currency": "USD"
+                }
+            })
+            
+        except Exception as e:
+            logger.error(f"Market overview API failed: {e}")
+            return await self._get_mock_market_data()
+    
+    async def _get_mock_market_data(self) -> str:
+        """Fallback mock market data"""
         return json.dumps({
             "chart_type": "market_overview",
             "data": {
@@ -143,24 +250,83 @@ class ChartDataTool(BaseTool):
         })
     
     async def _get_defi_tvl_data(self, protocols: List[str]) -> str:
-        """Get DeFi TVL data"""
+        """Get real DeFi TVL data from DeFiLlama API"""
+        try:
+            from src.tools.defillama_tool import DeFiLlamaTool
+            
+            defillama = DeFiLlamaTool()
+            
+            # Get protocols data
+            data = await defillama.make_request(f"{defillama._base_url}/protocols")
+            
+            if not data:
+                logger.warning("DeFiLlama API failed, using fallback")
+                return await self._get_mock_defi_data(protocols)
+            
+            # Filter for requested protocols or top protocols
+            if protocols:
+                filtered_protocols = []
+                for protocol_name in protocols:
+                    for protocol in data:
+                        if protocol_name.lower() in protocol.get("name", "").lower():
+                            filtered_protocols.append(protocol)
+                            break
+                protocols_data = filtered_protocols[:8]  # Limit to 8
+            else:
+                # Get top protocols by TVL
+                protocols_data = sorted([p for p in data if p.get("tvl", 0) > 0], 
+                                      key=lambda x: x.get("tvl", 0), reverse=True)[:8]
+            
+            if not protocols_data:
+                return await self._get_mock_defi_data(protocols)
+            
+            # Format TVL data
+            tvl_data = []
+            for protocol in protocols_data:
+                tvl_data.append({
+                    "name": protocol.get("name", "Unknown"),
+                    "tvl": protocol.get("tvl", 0),
+                    "change_1d": protocol.get("change_1d", 0),
+                    "chain": protocol.get("chain", "Multi-chain"),
+                    "category": protocol.get("category", "DeFi")
+                })
+            
+            return json.dumps({
+                "chart_type": "defi_tvl",
+                "data": {"protocols": tvl_data},
+                "config": {
+                    "title": "DeFi Protocols by Total Value Locked",
+                    "currency": "USD"
+                }
+            })
+            
+        except Exception as e:
+            logger.error(f"DeFi TVL API failed: {e}")
+            return await self._get_mock_defi_data(protocols)
+    
+    async def _get_mock_defi_data(self, protocols: List[str]) -> str:
+        """Fallback mock DeFi data"""
+        import random
+        
+        protocol_names = protocols or ["Uniswap", "Aave", "Compound", "Curve", "MakerDAO"]
         tvl_data = []
-        for protocol in protocols[:5]:  # Limit to 5 protocols
-            import random
-            tvl = random.uniform(500000000, 5000000000)  # $500M to $5B TVL
+        
+        for protocol in protocol_names[:5]:
+            tvl = random.uniform(500000000, 5000000000)
+            change = random.uniform(-10, 15)
             tvl_data.append({
-                "name": protocol.title(),
-                "tvl": int(tvl),
-                "change_24h": random.uniform(-10, 15)
+                "name": protocol,
+                "tvl": tvl,
+                "change_1d": change,
+                "chain": "Ethereum",
+                "category": "DeFi"
             })
         
         return json.dumps({
             "chart_type": "defi_tvl",
-            "data": {
-                "protocols": tvl_data
-            },
+            "data": {"protocols": tvl_data},
             "config": {
-                "title": "DeFi Protocols TVL Comparison",
+                "title": "DeFi Protocols by Total Value Locked",
                 "currency": "USD"
             }
         })

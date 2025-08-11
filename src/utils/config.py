@@ -8,10 +8,19 @@ load_dotenv()
 
 @dataclass
 class Config:
-    GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")
-    COINGECKO_API_KEY: Optional[str] = os.getenv("COINGECKO_API_KEY")
-    CRYPTOCOMPARE_API_KEY: Optional[str] = os.getenv("CRYPTOCOMPARE_API_KEY")
-    ETHERSCAN_API_KEY: str = os.getenv("ETHERSCAN_API_KEY", "")
+    # LLM Configuration - Ollama-only for testing (no API credits used)
+    GEMINI_API_KEY: str = ""  # Disabled to save credits
+    USE_OLLAMA_ONLY: bool = True  # Force Ollama-only mode
+    
+    # Available API Keys
+    COINGECKO_API_KEY: Optional[str] = None  # Not available - costs money
+    CRYPTOCOMPARE_API_KEY: Optional[str] = os.getenv("CRYPTOCOMPARE_API_KEY")  # Available
+    ETHERSCAN_API_KEY: str = os.getenv("ETHERSCAN_API_KEY", "")  # Available
+    
+    # Ollama Configuration
+    OLLAMA_BASE_URL: str = "http://localhost:11434"
+    OLLAMA_MODEL: str = "llama3.1:8b"  # Upgraded to Llama 3.1 8B for HF Spaces with 16GB RAM
+    USE_OLLAMA_FALLBACK: bool = True
     
     COINGECKO_BASE_URL: str = "https://api.coingecko.com/api/v3"
     CRYPTOCOMPARE_BASE_URL: str = "https://min-api.cryptocompare.com/data"

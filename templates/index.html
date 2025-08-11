@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Web3 Research Co-Pilot</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 24 24%22><path fill=%22%2300d4aa%22 d=%22M12 2L2 7v10c0 5.5 3.8 7.7 9 9 5.2-1.3 9-3.5 9-9V7l-10-5z%22/></svg>">
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+    <div id="statusIndicator" class="status-indicator">
+        <span id="statusText">Ready</span>
+    </div>
+    
+    <div class="container">
+        <div class="header">
+            <div class="header-content">
+                <div class="header-text">
+                    <h1><span class="brand">Web3</span> Research Co-Pilot</h1>
+                    <p>Professional cryptocurrency analysis and market intelligence</p>
+                </div>
+                <button id="themeToggle" class="theme-toggle" title="Toggle theme">
+                    <i class="fas fa-moon"></i>
+                </button>
+            </div>
+        </div>
+
+        <div id="status" class="status checking">
+            <span>Initializing research systems...</span>
+        </div>
+
+        <div class="chat-interface">
+            <div id="chatMessages" class="chat-messages">
+                <div class="welcome">
+                    <h3>Welcome to Web3 Research Co-Pilot</h3>
+                    <p>Ask about market trends, DeFi protocols, or blockchain analytics</p>
+                </div>
+            </div>
+            <div id="loadingIndicator" class="loading-indicator">
+                <div class="loading-spinner"></div>
+                <span id="loadingText">Processing your research query...</span>
+                <div class="progress-container">
+                    <div class="progress-bar" style="width: 0%;"></div>
+                </div>
+            </div>
+            <div class="input-area">
+                <div class="input-container">
+                    <input 
+                        type="text" 
+                        id="queryInput" 
+                        class="input-field"
+                        placeholder="Research Bitcoin trends, analyze DeFi yields, compare protocols..."
+                        maxlength="500"
+                    >
+                    <button id="sendBtn" class="send-button">Research</button>
+                </div>
+            </div>
+        </div>
+
+        <div class="examples">
+            <div class="example" onclick="setQuery('Analyze Bitcoin price trends and institutional adoption patterns')">
+                <div class="example-title"><i class="fas fa-chart-line"></i> Market Analysis</div>
+                <div class="example-desc">Bitcoin trends, institutional flows, and market sentiment analysis</div>
+            </div>
+            <div class="example" onclick="setQuery('Compare top DeFi protocols by TVL, yield, and risk metrics across chains')">
+                <div class="example-title"><i class="fas fa-coins"></i> DeFi Intelligence</div>
+                <div class="example-desc">Protocol comparison, yield analysis, and cross-chain opportunities</div>
+            </div>
+            <div class="example" onclick="setQuery('Evaluate Ethereum Layer 2 scaling solutions and adoption metrics')">
+                <div class="example-title"><i class="fas fa-layer-group"></i> Layer 2 Research</div>
+                <div class="example-desc">Scaling solutions, transaction costs, and ecosystem growth</div>
+            </div>
+            <div class="example" onclick="setQuery('Find optimal yield farming strategies with risk assessment')">
+                <div class="example-title"><i class="fas fa-seedling"></i> Yield Optimization</div>
+                <div class="example-desc">Cross-chain opportunities, APY tracking, and risk analysis</div>
+            </div>
+            <div class="example" onclick="setQuery('Track whale movements and large Bitcoin transactions today')">
+                <div class="example-title"><i class="fas fa-fish"></i> Whale Tracking</div>
+                <div class="example-desc">Large transactions, wallet analysis, and market impact</div>
+            </div>
+            <div class="example" onclick="setQuery('Analyze gas fees and network congestion across blockchains')">
+                <div class="example-title"><i class="fas fa-tachometer-alt"></i> Network Analytics</div>
+                <div class="example-desc">Gas prices, network utilization, and cost comparisons</div>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/app.js"></script>
+</body>
+</html>
