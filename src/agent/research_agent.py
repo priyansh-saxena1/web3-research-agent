@@ -22,41 +22,60 @@ class Web3ResearchAgent:
         self.fallback_llm = None
         self.tools = []
         self.enabled = False
+        self.gemini_available = False
         
         try:
-            if config.USE_OLLAMA_ONLY:
-                logger.info("🔧 Initializing in Ollama-only mode")
-                self._init_ollama_only()
-            else:
-                logger.info("🔧 Initializing with Gemini primary + Ollama fallback")
-                self._init_with_gemini_fallback()
+            # Always initialize Ollama
+            logger.info("🔧 Initializing Ollama as fallback")
+            self._init_ollama()
+            
+            # Try to initialize Gemini if API key is available
+            if config.GEMINI_API_KEY:
+                logger.info("🔧 Initializing Gemini as primary option")
+                self._init_gemini()
+                
+            self.tools = self._initialize_tools()
+            self.enabled = True
                 
         except Exception as e:
             logger.error(f"Agent initialization failed: {e}")
             self.enabled = False
 
-    def _init_ollama_only(self):
-        """Initialize with only Ollama LLM"""
+    def _init_ollama(self):
+        """Initialize Ollama LLM"""
         try:
             self.fallback_llm = Ollama(
                 model=config.OLLAMA_MODEL,
                 base_url=config.OLLAMA_BASE_URL,
                 temperature=0.1
             )
-            
             logger.info(f"✅ Ollama initialized - Model: {config.OLLAMA_MODEL}")
-            
-            self.tools = self._initialize_tools()
-            self.enabled = True
-            
         except Exception as e:
             logger.error(f"Ollama initialization failed: {e}")
-            self.enabled = False
+            raise
+    
+    def _init_gemini(self):
+        """Initialize Gemini LLM"""
+        try:
+            self.llm = ChatGoogleGenerativeAI(
+                model="gemini-pro",
+                google_api_key=config.GEMINI_API_KEY,
+                temperature=0.1
+            )
+            self.gemini_available = True
+            logger.info("✅ Gemini initialized")
+        except Exception as e:
+            logger.warning(f"Gemini initialization failed: {e}")
+            self.gemini_available = False
+
+    def _init_ollama_only(self):
+        """Initialize with only Ollama LLM (deprecated - kept for compatibility)"""
+        self._init_ollama()
 
     def _init_with_gemini_fallback(self):
-        """Initialize with Gemini primary and Ollama fallback"""
-        # This would be for future use when both are needed
-        pass
+        """Initialize with Gemini primary and Ollama fallback (deprecated - kept for compatibility)"""
+        self._init_ollama()
+        self._init_gemini()
 
     def _initialize_tools(self):
         tools = []
@@ -93,8 +112,8 @@ class Web3ResearchAgent:
         
         return tools
 
-    async def research_query(self, query: str) -> Dict[str, Any]:
-        """Research query with Ollama and tools - Enhanced with AI Safety"""
+    async def research_query(self, query: str, use_gemini: bool = False) -> Dict[str, Any]:
+        """Research query with dynamic LLM selection - Enhanced with AI Safety"""
         
         # AI Safety Check 1: Sanitize and validate input
         sanitized_query, is_safe, safety_reason = ai_safety.sanitize_query(query)
@@ -140,8 +159,13 @@ class Web3ResearchAgent:
             }
         
         try:
-            logger.info("🤖 Processing with Ollama + Tools (Safety Enhanced)")
-            return await self._research_with_ollama_tools(sanitized_query)
+            # Choose LLM based on user preference and availability
+            if use_gemini and self.gemini_available:
+                logger.info("🤖 Processing with Gemini + Tools (Safety Enhanced)")
+                return await self._research_with_gemini_tools(sanitized_query)
+            else:
+                logger.info("🤖 Processing with Ollama + Tools (Safety Enhanced)")
+                return await self._research_with_ollama_tools(sanitized_query)
                 
         except Exception as e:
             logger.error(f"Research failed: {e}")
@@ -341,6 +365,126 @@ The system successfully gathered data from {len(suggested_tools)} tools:
         except Exception as e:
             logger.error(f"Ollama tools research failed: {e}")
             raise e
+
+    async def _research_with_gemini_tools(self, query: str) -> Dict[str, Any]:
+        """Research using Gemini with tools"""
+        try:
+            # Step 1: Analyze query and suggest tools using Gemini
+            tool_analysis_prompt = f"""Based on this Web3/cryptocurrency research query, identify the most relevant tools to use.
+
+Query: "{query}"
+
+Available tools:
+- cryptocompare_data: Get current cryptocurrency prices and basic info
+- coingecko_data: Comprehensive market data and analytics
+- defillama_data: DeFi protocols, TVL, and yield farming data
+- etherscan_data: Ethereum blockchain data and transactions
+- chart_data_provider: Generate chart data for visualizations
+
+If charts/visualizations are mentioned, include chart_data_provider.
+
+Examples:
+- "Bitcoin price" → cryptocompare_data, chart_data_provider
+- "DeFi TVL" → defillama_data, chart_data_provider  
+- "Ethereum transactions" → etherscan_data
+
+Respond with only the tool names, comma-separated (no explanations)."""
+
+            tool_response = await self.llm.ainvoke(tool_analysis_prompt)
+            
+            logger.info(f"🧠 Gemini tool analysis response: {str(tool_response)[:100]}...")
+            
+            # Parse suggested tools
+            suggested_tools = [tool.strip() for tool in str(tool_response).split(',') if tool.strip()]
+            suggested_tools = [tool for tool in suggested_tools if tool in {
+                'cryptocompare_data', 'coingecko_data', 'defillama_data', 
+                'etherscan_data', 'chart_data_provider'
+            }]
+            
+            logger.info(f"🛠️ Gemini suggested tools: {suggested_tools}")
+
+            # Step 2: Execute tools (same logic as Ollama version)
+            tool_results = []
+            for tool_name in suggested_tools:
+                tool = next((t for t in self.tools if t.name == tool_name), None)
+                if tool:
+                    try:
+                        logger.info(f"🔧 Executing {tool_name}")
+                        
+                        # Handle chart_data_provider with proper parameters
+                        if tool_name == "chart_data_provider":
+                            chart_type = "price_chart"
+                            symbol = "bitcoin"
+                            
+                            if "defi" in query.lower() or "tvl" in query.lower():
+                                chart_type = "defi_tvl"
+                            elif "market" in query.lower() or "overview" in query.lower():
+                                chart_type = "market_overview"
+                            elif "gas" in query.lower():
+                                chart_type = "gas_tracker"
+                                
+                            if "ethereum" in query.lower() or "eth" in query.lower():
+                                symbol = "ethereum"
+                            elif "bitcoin" in query.lower() or "btc" in query.lower():
+                                symbol = "bitcoin"
+                                
+                            result = await tool._arun(chart_type=chart_type, symbol=symbol)
+                        else:
+                            result = await tool._arun(query)
+                            
+                        logger.info(f"📊 {tool_name} result preview: {str(result)[:200]}...")
+                        tool_results.append(f"=== {tool_name} Results ===\n{result}\n")
+                    except Exception as e:
+                        logger.error(f"Tool {tool_name} failed: {e}")
+                        tool_results.append(f"=== {tool_name} Error ===\nTool failed: {str(e)}\n")
+            
+            # Step 3: Generate final response with Gemini
+            context = "\n".join(tool_results) if tool_results else "No tool data available - provide general information."
+            
+            final_prompt = ai_safety.create_safe_prompt(query, context)
+            
+            try:
+                final_response = await asyncio.wait_for(
+                    self.llm.ainvoke(final_prompt),
+                    timeout=30
+                )
+                logger.info(f"🎯 Gemini final response preview: {str(final_response)[:300]}...")
+                
+                # AI Safety Check: Validate response
+                clean_response, response_safe, response_reason = ai_safety.validate_gemini_response(str(final_response))
+                if not response_safe:
+                    ai_safety.log_safety_event("blocked_gemini_response", {
+                        "reason": response_reason,
+                        "query": query[:100],
+                        "timestamp": datetime.now().isoformat()
+                    })
+                    clean_response = f"## Cryptocurrency Analysis\n\nBased on the available data:\n\n{context[:1000]}\n\n*Response filtered for safety*"
+                
+                final_response = clean_response
+                
+            except asyncio.TimeoutError:
+                logger.warning("⏱️ Gemini final response timed out, using tool data directly")
+                final_response = f"## Web3 Research Analysis\n\n{context[:1500]}\n\n*Analysis completed using available tools - Gemini response timed out*"
+            
+            logger.info("✅ Research successful with Gemini + tools")
+            
+            return {
+                "success": True,
+                "query": query,
+                "result": final_response,
+                "sources": [],
+                "metadata": {
+                    "llm_used": f"Gemini ({self.llm.model_name if hasattr(self.llm, 'model_name') else 'gemini-pro'})", 
+                    "tools_used": suggested_tools,
+                    "timestamp": datetime.now().isoformat()
+                }
+            }
+            
+        except Exception as e:
+            logger.error(f"Gemini tools research failed: {e}")
+            # Fallback to Ollama if Gemini fails
+            logger.info("🔄 Falling back to Ollama due to Gemini error")
+            return await self._research_with_ollama_tools(query)
 
     def _extract_sources(self, response: str) -> List[str]:
         """Extract sources from response"""

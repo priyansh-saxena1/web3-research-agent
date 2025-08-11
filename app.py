@@ -37,6 +37,7 @@ templates = Jinja2Templates(directory="templates")
 class QueryRequest(BaseModel):
     query: str
     chat_history: Optional[List[Dict[str, str]]] = []
+    use_gemini: bool = False
 
 class QueryResponse(BaseModel):
     success: bool
@@ -85,7 +86,7 @@ class Web3CoPilotService:
             self.airaa = None
             self.viz = None
     
-    async def process_query(self, query: str) -> QueryResponse:
+    async def process_query(self, query: str, use_gemini: bool = False) -> QueryResponse:
         """Process research query with comprehensive analysis"""
         logger.info("Processing research request...")
         
@@ -113,7 +114,7 @@ Configure GEMINI_API_KEY environment variable for full AI analysis."""
             logger.info("🤖 Processing with AI research agent...")
             logger.info(f"🛠️ Available tools: {[tool.name for tool in self.agent.tools] if self.agent else []}")
             
-            result = await self.agent.research_query(query)
+            result = await self.agent.research_query(query, use_gemini=use_gemini)
             logger.info(f"🔄 Agent research completed: success={result.get('success')}")
             
             if result.get("success"):
@@ -464,22 +465,23 @@ async def process_query_stream(request: QueryRequest):
             yield f"data: {json.dumps({'type': 'status', 'message': 'Executing tools and gathering data...', 'progress': 50})}\n\n"
             await asyncio.sleep(0.5)
             
-            # Send Ollama processing status with heartbeats
-            yield f"data: {json.dumps({'type': 'status', 'message': 'Ollama is analyzing data and generating response...', 'progress': 70})}\n\n"
+            # Send Ollama/Gemini processing status with heartbeats
+            llm_name = "Gemini" if request.use_gemini else "Ollama"
+            yield f"data: {json.dumps({'type': 'status', 'message': f'{llm_name} is analyzing data and generating response...', 'progress': 70})}\n\n"
             await asyncio.sleep(1.0)
             
             # Send additional heartbeat messages during processing
-            yield f"data: {json.dumps({'type': 'status', 'message': 'Ollama is thinking deeply about your query...', 'progress': 75})}\n\n"
+            yield f"data: {json.dumps({'type': 'status', 'message': f'{llm_name} is thinking deeply about your query...', 'progress': 75})}\n\n"
             await asyncio.sleep(2.0)
             
-            yield f"data: {json.dumps({'type': 'status', 'message': 'Still processing... Ollama generates detailed responses', 'progress': 80})}\n\n"
+            yield f"data: {json.dumps({'type': 'status', 'message': f'Still processing... {llm_name} generates detailed responses', 'progress': 80})}\n\n"
             await asyncio.sleep(3.0)
             
             # Process the actual query with timeout and periodic heartbeats
             start_time = datetime.now()
             
             # Create a task for the query processing
-            query_task = asyncio.create_task(service.process_query(request.query))
+            query_task = asyncio.create_task(service.process_query(request.query, request.use_gemini))
             
             try:
                 # Send periodic heartbeats while waiting for Ollama
@@ -499,7 +501,8 @@ async def process_query_stream(request: QueryRequest):
                             raise asyncio.TimeoutError("Hard timeout reached")
                         
                         progress = min(85 + (heartbeat_count * 2), 95)  # Progress slowly from 85 to 95
-                        yield f"data: {json.dumps({'type': 'status', 'message': f'Ollama is still working... ({elapsed:.0f}s elapsed)', 'progress': progress})}\n\n"
+                        llm_name = "Gemini" if request.use_gemini else "Ollama"
+                        yield f"data: {json.dumps({'type': 'status', 'message': f'{llm_name} is still working... ({elapsed:.0f}s elapsed)', 'progress': progress})}\n\n"
                         
                 # If we get here, the query completed successfully
                 result = query_task.result()

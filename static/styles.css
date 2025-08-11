@@ -66,6 +66,109 @@ body {
     flex: 1;
     text-align: center;
 }
+.header-controls {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+}
+
+/* LLM Toggle Switch Styles */
+.llm-toggle {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+.toggle-label {
+    font-size: 0.875rem;
+    color: var(--text-secondary);
+    font-weight: 500;
+}
+
+.switch {
+    position: relative;
+    display: inline-block;
+    width: 80px;
+    height: 32px;
+}
+
+.switch input {
+    opacity: 0;
+    width: 0;
+    height: 0;
+}
+
+.slider {
+    position: absolute;
+    cursor: pointer;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: var(--surface);
+    border: 1px solid var(--border);
+    transition: .4s;
+    overflow: hidden;
+}
+
+.slider:before {
+    position: absolute;
+    content: "";
+    height: 24px;
+    width: 24px;
+    left: 3px;
+    bottom: 3px;
+    background-color: var(--primary);
+    transition: .4s;
+    border-radius: 50%;
+    z-index: 2;
+}
+
+.slider-text-off, .slider-text-on {
+    position: absolute;
+    color: var(--text-secondary);
+    font-size: 0.7rem;
+    font-weight: 500;
+    top: 50%;
+    transform: translateY(-50%);
+    transition: .4s;
+    pointer-events: none;
+    z-index: 1;
+}
+
+.slider-text-off {
+    left: 8px;
+}
+
+.slider-text-on {
+    right: 8px;
+    opacity: 0;
+}
+
+input:checked + .slider {
+    background-color: var(--accent);
+    border-color: var(--accent);
+}
+
+input:checked + .slider .slider-text-off {
+    opacity: 0;
+}
+
+input:checked + .slider .slider-text-on {
+    opacity: 1;
+}
+
+input:checked + .slider:before {
+    transform: translateX(48px);
+}
+
+.slider.round {
+    border-radius: 20px;
+}
+
+.slider.round:before {
+    border-radius: 50%;
+}
+
 .theme-toggle {
     background: var(--surface);
     border: 1px solid var(--border);

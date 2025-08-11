@@ -1,5 +1,38 @@
 let chatHistory = [];
 let messageCount = 0;
+let useGemini = false; // Track current LLM choice
+
+// Initialize Gemini toggle
+document.addEventListener('DOMContentLoaded', function() {
+    const geminiToggle = document.getElementById('geminiToggle');
+    const toggleLabel = document.querySelector('.toggle-label');
+    
+    // Load saved preference
+    useGemini = localStorage.getItem('useGemini') === 'true';
+    geminiToggle.checked = useGemini;
+    updateToggleLabel();
+    
+    // Handle toggle changes
+    geminiToggle.addEventListener('change', function() {
+        useGemini = this.checked;
+        localStorage.setItem('useGemini', useGemini.toString());
+        updateToggleLabel();
+        console.log(`Switched to ${useGemini ? 'Gemini' : 'Ollama'} mode`);
+        
+        // Show confirmation
+        showStatus(`Switched to ${useGemini ? 'Gemini (Cloud AI)' : 'Ollama (Local AI)'} mode`, 'info');
+        
+        // Refresh status to reflect changes
+        checkStatus();
+    });
+});
+
+function updateToggleLabel() {
+    const toggleLabel = document.querySelector('.toggle-label');
+    if (toggleLabel) {
+        toggleLabel.textContent = `AI Model: ${useGemini ? 'Gemini' : 'Ollama'}`;
+    }
+}
 
 async function checkStatus() {
     try {
@@ -68,7 +101,11 @@ async function sendQuery() {
                 'Accept': 'text/event-stream',
                 'Cache-Control': 'no-cache'
             },
-            body: JSON.stringify({ query, chat_history: chatHistory }),
+            body: JSON.stringify({ 
+                query, 
+                chat_history: chatHistory, 
+                use_gemini: useGemini 
+            }),
             signal: controller.signal,
             // Disable browser's default timeout behavior
             keepalive: true

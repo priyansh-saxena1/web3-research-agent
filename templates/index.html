@@ -21,9 +21,21 @@
                     <h1><span class="brand">Web3</span> Research Co-Pilot</h1>
                     <p>Professional cryptocurrency analysis and market intelligence</p>
                 </div>
-                <button id="themeToggle" class="theme-toggle" title="Toggle theme">
-                    <i class="fas fa-moon"></i>
-                </button>
+                <div class="header-controls">
+                    <div class="llm-toggle">
+                        <span class="toggle-label">AI Model:</span>
+                        <label class="switch">
+                            <input type="checkbox" id="geminiToggle" title="Switch between Ollama (Local) and Gemini (Cloud)">
+                            <span class="slider round">
+                                <span class="slider-text-off">Ollama</span>
+                                <span class="slider-text-on">Gemini</span>
+                            </span>
+                        </label>
+                    </div>
+                    <button id="themeToggle" class="theme-toggle" title="Toggle theme">
+                        <i class="fas fa-moon"></i>
+                    </button>
+                </div>
             </div>
         </div>
 

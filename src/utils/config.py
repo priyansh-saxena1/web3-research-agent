@@ -8,9 +8,9 @@ load_dotenv()
 
 @dataclass
 class Config:
-    # LLM Configuration - Ollama-only for testing (no API credits used)
-    GEMINI_API_KEY: str = ""  # Disabled to save credits
-    USE_OLLAMA_ONLY: bool = True  # Force Ollama-only mode
+    # LLM Configuration - Both Ollama and Gemini available
+    GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")  # Enable Gemini when API key provided
+    USE_OLLAMA_ONLY: bool = not bool(os.getenv("GEMINI_API_KEY"))  # Auto-detect based on API key
     
     # Available API Keys
     COINGECKO_API_KEY: Optional[str] = None  # Not available - costs money

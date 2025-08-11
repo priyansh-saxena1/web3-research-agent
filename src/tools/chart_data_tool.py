@@ -84,9 +84,9 @@ class ChartDataTool(BaseTool):
             })
     
     async def _get_price_chart_data(self, symbol: str, days: int) -> str:
-        """Get real price chart data from CoinGecko API"""
+        """Get price chart data with fallback for API failures"""
         try:
-            # Import the CoinGecko tool to get real data
+            # First try to get real data from CoinGecko
             from src.tools.coingecko_tool import CoinGeckoTool
             
             coingecko = CoinGeckoTool()
@@ -107,42 +107,48 @@ class ChartDataTool(BaseTool):
             
             coin_id = symbol_map.get(symbol.lower(), symbol.lower())
             
-            # Get price history from CoinGecko
-            url = f"https://api.coingecko.com/api/v3/coins/{coin_id}/market_chart"
-            params = {"vs_currency": "usd", "days": days, "interval": "daily" if days > 90 else "hourly"}
-            
-            data = await coingecko.make_request(url, params=params)
-            
-            if not data or "prices" not in data:
-                # Fallback to mock data if API fails
-                logger.warning(f"CoinGecko API failed for {symbol}, using fallback data")
+            try:
+                # Use basic API endpoint that doesn't require premium
+                url = f"https://api.coingecko.com/api/v3/coins/{coin_id}/market_chart"
+                params = {"vs_currency": "usd", "days": days, "interval": "daily"}
+                
+                data = await coingecko.make_request(url, params=params)
+                
+                if data and "prices" in data:
+                    # Format the real data
+                    price_data = data.get("prices", [])
+                    volume_data = data.get("total_volumes", [])
+                    
+                    # Get current coin info
+                    coin_info = await coingecko.make_request(f"https://api.coingecko.com/api/v3/coins/{coin_id}")
+                    coin_name = coin_info.get("name", symbol.title()) if coin_info else symbol.title()
+                    
+                    return json.dumps({
+                        "chart_type": "price_chart", 
+                        "data": {
+                            "prices": price_data,
+                            "total_volumes": volume_data,
+                            "symbol": symbol.upper(),
+                            "name": coin_name
+                        },
+                        "config": {
+                            "title": f"{coin_name} Price Analysis ({days} days)",
+                            "timeframe": f"{days}d", 
+                            "currency": "USD"
+                        }
+                    })
+                else:
+                    raise Exception("No price data in response")
+                    
+            except Exception as api_error:
+                logger.error(f"Real price data failed: {api_error}")
+                # Fallback to mock data on any API error
+                logger.info(f"Using fallback mock data for {symbol}")
                 return await self._get_mock_price_data(symbol, days)
             
-            # Format the real data
-            price_data = data.get("prices", [])
-            volume_data = data.get("total_volumes", [])
-            
-            # Get current coin info
-            coin_info = await coingecko.make_request(f"https://api.coingecko.com/api/v3/coins/{coin_id}")
-            coin_name = coin_info.get("name", symbol.title()) if coin_info else symbol.title()
-            
-            return json.dumps({
-                "chart_type": "price_chart", 
-                "data": {
-                    "prices": price_data,
-                    "total_volumes": volume_data,
-                    "symbol": symbol.upper(),
-                    "name": coin_name
-                },
-                "config": {
-                    "title": f"{coin_name} Price Analysis ({days} days)",
-                    "timeframe": f"{days}d", 
-                    "currency": "USD"
-                }
-            })
-            
         except Exception as e:
-            logger.error(f"Real price data failed: {e}")
+            logger.error(f"Price chart data generation failed: {e}")
+            # Final fallback to mock data
             return await self._get_mock_price_data(symbol, days)
     
     async def _get_mock_price_data(self, symbol: str, days: int) -> str:
