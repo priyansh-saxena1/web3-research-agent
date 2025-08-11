@@ -16,6 +16,13 @@ from src.utils.ai_safety import ai_safety
 
 logger = get_logger(__name__)
 
+# Add version logging for debugging
+try:
+    from version import VERSION
+    logger.info(f"🔧 Research Agent Version: {VERSION}")
+except ImportError:
+    logger.info("🔧 Research Agent Version: Unknown")
+
 class Web3ResearchAgent:
     def __init__(self):
         self.llm = None
@@ -513,8 +520,10 @@ Respond with only the tool names, comma-separated (no explanations)."""
                 # Extract content from Gemini response object
                 if hasattr(final_response, 'content'):
                     response_content = final_response.content
+                    logger.info(f"✅ Extracted clean content: {response_content[:200]}...")
                 else:
                     response_content = str(final_response)
+                    logger.warning(f"⚠️ Fallback to str() conversion: {response_content[:200]}...")
                 
                 # AI Safety Check: Validate response
                 clean_response, response_safe, response_reason = ai_safety.validate_gemini_response(response_content)
@@ -526,6 +535,7 @@ Respond with only the tool names, comma-separated (no explanations)."""
                     })
                     clean_response = f"## Cryptocurrency Analysis\n\nBased on the available data:\n\n{context[:1000]}\n\n*Response filtered for safety*"
                 
+                logger.info(f"🔒 Final clean response: {clean_response[:200]}...")
                 final_response = clean_response
                 
             except asyncio.TimeoutError:
@@ -533,6 +543,12 @@ Respond with only the tool names, comma-separated (no explanations)."""
                 final_response = f"## Web3 Research Analysis\n\n{context[:1500]}\n\n*Analysis completed using available tools - Gemini response timed out*"
             
             logger.info("✅ Research successful with Gemini + tools")
+            
+            # Final safety check: ensure we're not returning raw LangChain objects
+            if isinstance(final_response, str):
+                if "additional_kwargs" in final_response or "response_metadata" in final_response:
+                    logger.error("🚨 CRITICAL: Raw LangChain metadata detected in final response!")
+                    final_response = "Response contains technical metadata and has been filtered for safety."
             
             return {
                 "success": True,
