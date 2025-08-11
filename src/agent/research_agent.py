@@ -248,39 +248,59 @@ class Web3ResearchAgent:
             if memory_context and memory_context.get("cached_context"):
                 context_note = f"\n\nPrevious context: {len(memory_context['cached_context'])} related queries found"
             
-            tool_analysis_prompt = f"""Which tools for this query: "{query}"{context_note}
+            tool_analysis_prompt = f"""Tools for: "{query}"{context_note}
 
-Tools:
-- cryptocompare_data: crypto prices (PREFERRED)
-- etherscan_data: Ethereum data (PREFERRED for ETH)  
-- defillama_data: DeFi TVL data
-- chart_data_provider: charts/visualizations
+cryptocompare_data: crypto prices
+etherscan_data: Ethereum data  
+defillama_data: DeFi TVL
+chart_data_provider: charts
 
-Examples:
-- "Bitcoin price" → cryptocompare_data, chart_data_provider
-- "DeFi TVL" → defillama_data, chart_data_provider  
-- "Ethereum gas" → etherscan_data
+Bitcoin price → cryptocompare_data
+DeFi TVL → defillama_data
+Ethereum → etherscan_data
 
-List tool names only:"""
-            
-            tool_response = await self.fallback_llm.ainvoke(tool_analysis_prompt)
-            logger.info(f"🧠 Ollama tool analysis response: {str(tool_response)[:500]}...")
-            
-            # Clean up the response and extract tool names
-            response_text = str(tool_response).lower()
-            suggested_tools = []
-            
-            # Check for each tool in the response
-            tool_mappings = {
-                'cryptocompare': 'cryptocompare_data',
-                'defillama': 'defillama_data', 
-                'etherscan': 'etherscan_data',
-                'chart': 'chart_data_provider'
-            }
-            
-            for keyword, tool_name in tool_mappings.items():
-                if keyword in response_text:
-                    suggested_tools.append(tool_name)
+Answer with tool names:"""
+            try:
+                tool_response = await asyncio.wait_for(
+                    self.fallback_llm.ainvoke(tool_analysis_prompt),
+                    timeout=30  # 30 second timeout for tool analysis
+                )
+                logger.info(f"🧠 Ollama tool analysis response: {str(tool_response)[:500]}...")
+                
+                # Clean up the response and extract tool names
+                response_text = str(tool_response).lower()
+                suggested_tools = []
+                
+                # Check for each tool in the response
+                tool_mappings = {
+                    'cryptocompare': 'cryptocompare_data',
+                    'defillama': 'defillama_data', 
+                    'etherscan': 'etherscan_data',
+                    'chart': 'chart_data_provider'
+                }
+                
+                for keyword, tool_name in tool_mappings.items():
+                    if keyword in response_text:
+                        suggested_tools.append(tool_name)
+                
+            except asyncio.TimeoutError:
+                logger.warning("⏱️ Tool analysis timed out, using fallback tool selection")
+                # Fallback tool selection based on query keywords
+                suggested_tools = []
+                query_lower = query.lower()
+                
+                if any(word in query_lower for word in ['price', 'bitcoin', 'btc', 'ethereum', 'eth', 'crypto']):
+                    suggested_tools.append('cryptocompare_data')
+                if 'defi' in query_lower or 'tvl' in query_lower:
+                    suggested_tools.append('defillama_data')
+                if 'ethereum' in query_lower or 'gas' in query_lower:
+                    suggested_tools.append('etherscan_data')
+                if any(word in query_lower for word in ['chart', 'graph', 'visualization', 'trend']):
+                    suggested_tools.append('chart_data_provider')
+                
+                # Default to basic crypto data if no matches
+                if not suggested_tools:
+                    suggested_tools = ['cryptocompare_data']
             
             # Default to at least one relevant tool if parsing fails
             if not suggested_tools:
@@ -451,50 +471,59 @@ The system successfully executed {len(suggested_tools)} data tools:
                 if recent_tools:
                     context_info = f"\n\nRecent tools used: {', '.join(set(recent_tools))}"
             
-            tool_analysis_prompt = f"""Based on this Web3/cryptocurrency research query, identify the most relevant tools to use.
+            tool_analysis_prompt = f"""Tools for: "{query}"{context_info}
 
-Query: "{query}"{context_info}
+cryptocompare_data: crypto prices
+etherscan_data: Ethereum data
+defillama_data: DeFi TVL  
+chart_data_provider: charts
 
-Available tools (prioritized by functionality):
-- cryptocompare_data: Real-time cryptocurrency prices, market data, and trading info (PREFERRED for price data)
-- etherscan_data: Ethereum blockchain data, transactions, gas fees, and smart contracts (PREFERRED for Ethereum)
-- defillama_data: DeFi protocols, TVL, and yield farming data
-- chart_data_provider: Generate chart data for visualizations
+List tool names:"""
 
-NOTE: Do NOT use coingecko_data as the API is not available.
-
-If charts/visualizations are mentioned, include chart_data_provider.
-
-Examples:
-- "Bitcoin price" → cryptocompare_data, chart_data_provider
-- "DeFi TVL" → defillama_data, chart_data_provider  
-- "Ethereum transactions" → etherscan_data
-- "Gas fees" → etherscan_data
-
-Respond with only the tool names, comma-separated (no explanations)."""
-
-            tool_response = await self.llm.ainvoke(tool_analysis_prompt)
-            
-            logger.info(f"🧠 Gemini tool analysis response: {str(tool_response)[:100]}...")
-            
-            # Parse suggested tools
-            suggested_tools = [tool.strip() for tool in str(tool_response).split(',') if tool.strip()]
-            suggested_tools = [tool for tool in suggested_tools if tool in {
-                'cryptocompare_data', 'defillama_data', 
-                'etherscan_data', 'chart_data_provider'
-            }]
-            
-            # If no valid tools found, extract from response content
-            if not suggested_tools:
-                response_text = str(tool_response).lower()
-                if 'cryptocompare' in response_text:
+            try:
+                tool_response = await asyncio.wait_for(
+                    self.llm.ainvoke(tool_analysis_prompt),
+                    timeout=30  # 30 second timeout for Gemini tool analysis
+                )
+                
+                logger.info(f"🧠 Gemini tool analysis response: {str(tool_response)[:100]}...")
+                
+                # Parse suggested tools
+                suggested_tools = [tool.strip() for tool in str(tool_response).split(',') if tool.strip()]
+                suggested_tools = [tool for tool in suggested_tools if tool in {
+                    'cryptocompare_data', 'defillama_data', 
+                    'etherscan_data', 'chart_data_provider'
+                }]
+                
+                # If no valid tools found, extract from response content
+                if not suggested_tools:
+                    response_text = str(tool_response).lower()
+                    if 'cryptocompare' in response_text:
+                        suggested_tools.append('cryptocompare_data')
+                    if 'defillama' in response_text:
+                        suggested_tools.append('defillama_data')
+                    if 'etherscan' in response_text:
+                        suggested_tools.append('etherscan_data')
+                    if 'chart' in response_text or 'visualization' in response_text:
+                        suggested_tools.append('chart_data_provider')
+                        
+            except asyncio.TimeoutError:
+                logger.warning("⏱️ Gemini tool analysis timed out, using fallback tool selection")
+                # Same fallback logic as Ollama
+                suggested_tools = []
+                query_lower = query.lower()
+                
+                if any(word in query_lower for word in ['price', 'bitcoin', 'btc', 'ethereum', 'eth', 'crypto']):
                     suggested_tools.append('cryptocompare_data')
-                if 'defillama' in response_text:
+                if 'defi' in query_lower or 'tvl' in query_lower:
                     suggested_tools.append('defillama_data')
-                if 'etherscan' in response_text:
+                if 'ethereum' in query_lower or 'gas' in query_lower:
                     suggested_tools.append('etherscan_data')
-                if 'chart' in response_text or 'visualization' in response_text:
+                if any(word in query_lower for word in ['chart', 'graph', 'visualization', 'trend']):
                     suggested_tools.append('chart_data_provider')
+                
+                if not suggested_tools:
+                    suggested_tools = ['cryptocompare_data']
             
             logger.info(f"🛠️ Gemini suggested tools: {suggested_tools}")
 
