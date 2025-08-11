@@ -42,18 +42,20 @@ EXPOSE 7860 11434
 RUN echo '#!/bin/bash\n\
 echo "🚀 Starting HuggingFace Spaces Web3 Research Co-Pilot..."\n\
 \n\
-# Set Ollama environment\n\
+# Set Ollama environment variables\n\
 export OLLAMA_HOME=/app/.ollama\n\
 export OLLAMA_HOST=0.0.0.0\n\
 export OLLAMA_PORT=11434\n\
 \n\
-# Ensure Ollama directory exists with correct permissions\n\
-mkdir -p $OLLAMA_HOME\n\
-chmod 755 $OLLAMA_HOME\n\
+# Create and set permissions for Ollama directory\n\
+echo "🗂️  Setting up Ollama data directory..."\n\
+mkdir -p /app/.ollama\n\
+chmod -R 755 /app/.ollama\n\
+ls -la /app/.ollama\n\
 \n\
-# Start Ollama server in background\n\
+# Start Ollama server in background with explicit data directory\n\
 echo "📦 Starting Ollama server..."\n\
-ollama serve &\n\
+OLLAMA_HOME=/app/.ollama ollama serve &\n\
 OLLAMA_PID=$!\n\
 \n\
 # Wait for Ollama to be ready\n\
@@ -67,7 +69,7 @@ echo "✅ Ollama server is ready!"\n\
 \n\
 # Pull the Llama 3.1 8B model\n\
 echo "📥 Pulling llama3.1:8b model (this may take a few minutes)..."\n\
-ollama pull llama3.1:8b\n\
+OLLAMA_HOME=/app/.ollama ollama pull llama3.1:8b\n\
 echo "✅ Model llama3.1:8b ready!"\n\
 \n\
 # Start the main application\n\

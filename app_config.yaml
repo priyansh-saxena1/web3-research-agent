@@ -1,0 +1,19 @@
+title: Web3 Research Co-Pilot
+emoji: 🚀
+colorFrom: blue
+colorTo: green
+sdk: docker
+app_file: app.py
+dockerfile: Dockerfile
+license: mit
+tags:
+- cryptocurrency
+- blockchain
+- defi
+- ai-research
+- ollama
+- llama3
+pinned: false
+header: default
+short_description: AI-powered cryptocurrency research assistant with real-time data
+suggested_hardware: t4-medium
