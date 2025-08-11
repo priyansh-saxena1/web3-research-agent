@@ -78,6 +78,8 @@ echo "✅ Model llama3.1:8b ready!"\n\
 \n\
 # Start the main application\n\
 echo "🌐 Starting Web3 Research Co-Pilot web application..."\n\
+echo "🔍 Running startup validation..."\n\
+python validate_startup.py || exit 1\n\
 python app.py &\n\
 APP_PID=$!\n\
 \n\

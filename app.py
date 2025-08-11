@@ -517,28 +517,14 @@ async def process_query_stream(request: QueryRequest):
                 logger.error(f"Query processing timed out after {processing_time:.1f}s")
                 
                 # Send timeout result with available data
-                yield f"data: {json.dumps({'type': 'result', 'data': {
-                    'success': False,
-                    'response': 'Analysis timed out, but tools successfully gathered data. The system collected cryptocurrency prices, DeFi protocol information, and blockchain data. Please try a simpler query or try again.',
-                    'sources': [],
-                    'metadata': {'timeout': True, 'processing_time': processing_time},
-                    'visualizations': [],
-                    'error': 'Processing timeout'
-                }.copy(), 'progress': 100})}\n\n"
+                yield f"data: {json.dumps({'type': 'result', 'data': {'success': False, 'response': 'Analysis timed out, but tools successfully gathered data. The system collected cryptocurrency prices, DeFi protocol information, and blockchain data. Please try a simpler query or try again.', 'sources': [], 'metadata': {'timeout': True, 'processing_time': processing_time}, 'visualizations': [], 'error': 'Processing timeout'}, 'progress': 100})}\n\n"
                 
             except Exception as query_error:
                 processing_time = (datetime.now() - start_time).total_seconds()
                 logger.error(f"Query processing failed: {query_error}")
                 
                 # Send error result
-                yield f"data: {json.dumps({'type': 'result', 'data': {
-                    'success': False,
-                    'response': f'Analysis failed: {str(query_error)}. The system was able to gather some data but encountered an error during final processing.',
-                    'sources': [],
-                    'metadata': {'error': True, 'processing_time': processing_time},
-                    'visualizations': [],
-                    'error': str(query_error)
-                }.copy(), 'progress': 100})}\n\n"
+                yield f"data: {json.dumps({'type': 'result', 'data': {'success': False, 'response': f'Analysis failed: {str(query_error)}. The system was able to gather some data but encountered an error during final processing.', 'sources': [], 'metadata': {'error': True, 'processing_time': processing_time}, 'visualizations': [], 'error': str(query_error)}, 'progress': 100})}\n\n"
             
             # Send completion signal
             yield f"data: {json.dumps({'type': 'complete'})}\n\n"
