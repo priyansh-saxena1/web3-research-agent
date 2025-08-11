@@ -393,3 +393,8 @@ class ChartDataTool(BaseTool):
             "1d": 1, "7d": 7, "30d": 30, "90d": 90, "365d": 365, "1y": 365
         }
         return timeframe_map.get(timeframe, 30)
+    
+    async def cleanup(self):
+        """Cleanup method for session management"""
+        # ChartDataTool doesn't maintain persistent connections, so nothing to clean up
+        pass

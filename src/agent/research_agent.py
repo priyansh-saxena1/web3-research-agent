@@ -417,6 +417,20 @@ Respond with only the tool names, comma-separated (no explanations)."""
                 'etherscan_data', 'chart_data_provider'
             }]
             
+            # If no valid tools found, extract from response content
+            if not suggested_tools:
+                response_text = str(tool_response).lower()
+                if 'cryptocompare' in response_text:
+                    suggested_tools.append('cryptocompare_data')
+                if 'coingecko' in response_text:
+                    suggested_tools.append('coingecko_data')
+                if 'defillama' in response_text:
+                    suggested_tools.append('defillama_data')
+                if 'etherscan' in response_text:
+                    suggested_tools.append('etherscan_data')
+                if 'chart' in response_text or 'visualization' in response_text:
+                    suggested_tools.append('chart_data_provider')
+            
             logger.info(f"🛠️ Gemini suggested tools: {suggested_tools}")
 
             # Step 2: Execute tools (same logic as Ollama version)

@@ -130,6 +130,40 @@ class AISafetyGuard:
         
         return cleaned, True, "Response is safe"
     
+    def validate_gemini_response(self, response: str) -> Tuple[str, bool, str]:
+        """
+        Validate Gemini response for safety and quality
+        Returns: (cleaned_response, is_valid, reason)
+        """
+        if not response or not response.strip():
+            return "", False, "Empty response from Gemini"
+        
+        # Check for dangerous content in response
+        dangerous_patterns = [
+            r'(?i)here.*is.*how.*to.*hack',
+            r'(?i)steps.*to.*exploit',
+            r'(?i)bypass.*security.*by',
+            r'(?i)manipulate.*market.*by',
+        ]
+        
+        for pattern in dangerous_patterns:
+            if re.search(pattern, response):
+                logger.warning(f"Blocked unsafe Gemini response: {pattern}")
+                return "", False, "Response contains potentially unsafe content"
+        
+        # Basic response cleaning
+        cleaned = response.strip()
+        
+        # Remove any potential HTML/JavaScript
+        cleaned = re.sub(r'<script.*?</script>', '', cleaned, flags=re.DOTALL | re.IGNORECASE)
+        cleaned = re.sub(r'<[^>]+>', '', cleaned)
+        
+        # Ensure response is within reasonable length
+        if len(cleaned) > 10000:  # 10k character limit
+            cleaned = cleaned[:10000] + "\n\n[Response truncated for safety]"
+        
+        return cleaned, True, "Response is safe"
+    
     def create_safe_prompt(self, user_query: str, tool_context: str) -> str:
         """Create a safety-enhanced prompt for Ollama"""
         safety_instructions = """
