@@ -357,7 +357,7 @@ List tool names only:"""
             try:
                 final_response = await asyncio.wait_for(
                     self.fallback_llm.ainvoke(final_prompt),
-                    timeout=90  # 90 second timeout for Llama 3.1 8B model
+                    timeout=440  # 90 second timeout for Llama 3.1 8B model
                 )
                 logger.info(f"🎯 Ollama final response preview: {str(final_response)[:300]}...")
                 
