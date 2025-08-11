@@ -80,11 +80,15 @@ class Web3ResearchAgent:
     def _initialize_tools(self):
         tools = []
         
-        try:
-            tools.append(CoinGeckoTool())
-            logger.info("CoinGecko tool initialized")
-        except Exception as e:
-            logger.warning(f"CoinGecko tool failed: {e}")
+        # Skip CoinGecko if no API key available
+        if config.COINGECKO_API_KEY:
+            try:
+                tools.append(CoinGeckoTool())
+                logger.info("CoinGecko tool initialized")
+            except Exception as e:
+                logger.warning(f"CoinGecko tool failed: {e}")
+        else:
+            logger.info("CoinGecko tool skipped - no API key available")
         
         try:
             tools.append(DeFiLlamaTool())
@@ -214,11 +218,13 @@ class Web3ResearchAgent:
             tool_analysis_prompt = f"""Analyze this query and determine which tools would be helpful:
 Query: "{query}"
 
-Available tools:
-- cryptocompare_data: Real-time crypto prices and market data
-- defillama_data: DeFi protocol TVL and yield data  
-- etherscan_data: Ethereum blockchain data
+Available tools (prioritized by functionality):
+- cryptocompare_data: Real-time crypto prices and market data (PREFERRED for prices)
+- etherscan_data: Ethereum blockchain data, gas fees, transactions (PREFERRED for Ethereum)  
+- defillama_data: DeFi protocol TVL and yield data
 - chart_data_provider: Generate chart data for visualizations
+
+NOTE: Do NOT suggest coingecko_data as the API is unavailable.
 
 Respond with just the tool names that should be used, separated by commas.
 If charts/visualizations are mentioned, include chart_data_provider.
@@ -390,12 +396,13 @@ The system successfully gathered data from {len(suggested_tools)} tools:
 
 Query: "{query}"
 
-Available tools:
-- cryptocompare_data: Get current cryptocurrency prices and basic info
-- coingecko_data: Comprehensive market data and analytics
+Available tools (prioritized by functionality):
+- cryptocompare_data: Real-time cryptocurrency prices, market data, and trading info (PREFERRED for price data)
+- etherscan_data: Ethereum blockchain data, transactions, gas fees, and smart contracts (PREFERRED for Ethereum)
 - defillama_data: DeFi protocols, TVL, and yield farming data
-- etherscan_data: Ethereum blockchain data and transactions
 - chart_data_provider: Generate chart data for visualizations
+
+NOTE: Do NOT use coingecko_data as the API is not available.
 
 If charts/visualizations are mentioned, include chart_data_provider.
 
@@ -403,6 +410,7 @@ Examples:
 - "Bitcoin price" → cryptocompare_data, chart_data_provider
 - "DeFi TVL" → defillama_data, chart_data_provider  
 - "Ethereum transactions" → etherscan_data
+- "Gas fees" → etherscan_data
 
 Respond with only the tool names, comma-separated (no explanations)."""
 
@@ -413,7 +421,7 @@ Respond with only the tool names, comma-separated (no explanations)."""
             # Parse suggested tools
             suggested_tools = [tool.strip() for tool in str(tool_response).split(',') if tool.strip()]
             suggested_tools = [tool for tool in suggested_tools if tool in {
-                'cryptocompare_data', 'coingecko_data', 'defillama_data', 
+                'cryptocompare_data', 'defillama_data', 
                 'etherscan_data', 'chart_data_provider'
             }]
             
@@ -422,8 +430,6 @@ Respond with only the tool names, comma-separated (no explanations)."""
                 response_text = str(tool_response).lower()
                 if 'cryptocompare' in response_text:
                     suggested_tools.append('cryptocompare_data')
-                if 'coingecko' in response_text:
-                    suggested_tools.append('coingecko_data')
                 if 'defillama' in response_text:
                     suggested_tools.append('defillama_data')
                 if 'etherscan' in response_text:

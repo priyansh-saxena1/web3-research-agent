@@ -90,64 +90,54 @@ class ChartDataTool(BaseTool):
 
     async def _get_price_chart_data(self, symbol: str, days: int) -> str:
         """Get price chart data with fallback for API failures"""
-        coingecko = None
+        cryptocompare_tool = None
         try:
-            # First try to get real data from CoinGecko
-            from src.tools.coingecko_tool import CoinGeckoTool
+            # First try to get real data from CryptoCompare (we have this API key)
+            from src.tools.cryptocompare_tool import CryptoCompareTool
             
-            coingecko = CoinGeckoTool()
+            cryptocompare_tool = CryptoCompareTool()
             
-            # Map common symbols to CoinGecko IDs
+            # Map common symbols to CryptoCompare format
             symbol_map = {
-                "btc": "bitcoin", "bitcoin": "bitcoin",
-                "eth": "ethereum", "ethereum": "ethereum", 
-                "sol": "solana", "solana": "solana",
-                "ada": "cardano", "cardano": "cardano",
-                "bnb": "binancecoin", "binance": "binancecoin",
-                "matic": "matic-network", "polygon": "matic-network",
-                "avax": "avalanche-2", "avalanche": "avalanche-2",
-                "dot": "polkadot", "polkadot": "polkadot",
-                "link": "chainlink", "chainlink": "chainlink",
-                "uni": "uniswap", "uniswap": "uniswap"
+                "btc": "BTC", "bitcoin": "BTC",
+                "eth": "ethereum", "ethereum": "ETH", 
+                "sol": "SOL", "solana": "SOL",
+                "ada": "ADA", "cardano": "ADA",
+                "bnb": "BNB", "binance": "BNB",
+                "matic": "MATIC", "polygon": "MATIC",
+                "avax": "AVAX", "avalanche": "AVAX",
+                "dot": "DOT", "polkadot": "DOT",
+                "link": "LINK", "chainlink": "LINK",
+                "uni": "UNI", "uniswap": "UNI"
             }
             
-            coin_id = symbol_map.get(symbol.lower(), symbol.lower())
+            crypto_symbol = symbol_map.get(symbol.lower(), symbol.upper())
             
             try:
-                # Use basic API endpoint that doesn't require premium
-                url = f"https://api.coingecko.com/api/v3/coins/{coin_id}/market_chart"
-                params = {"vs_currency": "usd", "days": days, "interval": "daily"}
+                # Use CryptoCompare for price data
+                query = f"{crypto_symbol} price historical {days} days"
+                data_result = await cryptocompare_tool._arun(query, {"type": "price_history", "days": days})
                 
-                data = await coingecko.make_request(url, params=params)
-                
-                if data and "prices" in data:
-                    # Format the real data
-                    price_data = data.get("prices", [])
-                    volume_data = data.get("total_volumes", [])
-                    
-                    # Get current coin info
-                    coin_info = await coingecko.make_request(f"https://api.coingecko.com/api/v3/coins/{coin_id}")
-                    coin_name = coin_info.get("name", symbol.title()) if coin_info else symbol.title()
-                    
+                if data_result and not data_result.startswith("❌") and not data_result.startswith("⚠️"):
                     return json.dumps({
                         "chart_type": "price_chart", 
                         "data": {
-                            "prices": price_data,
-                            "total_volumes": volume_data,
-                            "symbol": symbol.upper(),
-                            "name": coin_name
+                            "source": "cryptocompare",
+                            "raw_data": data_result,
+                            "symbol": crypto_symbol,
+                            "name": symbol.title()
                         },
                         "config": {
-                            "title": f"{coin_name} Price Analysis ({days} days)",
+                            "title": f"{symbol.title()} Price Analysis ({days} days)",
                             "timeframe": f"{days}d", 
                             "currency": "USD"
                         }
                     })
                 else:
-                    raise Exception("No price data in response")
+                    raise Exception("No valid price data from CryptoCompare")
                     
             except Exception as api_error:
-                logger.error(f"Real price data failed: {api_error}")
+                logger.error(f"CryptoCompare price data failed: {api_error}")
                 # Fallback to mock data on any API error
                 logger.info(f"Using fallback mock data for {symbol}")
                 return await self._get_mock_price_data(symbol, days)
@@ -157,10 +147,10 @@ class ChartDataTool(BaseTool):
             # Final fallback to mock data
             return await self._get_mock_price_data(symbol, days)
         finally:
-            # Cleanup CoinGecko tool session
-            if coingecko and hasattr(coingecko, 'cleanup'):
+            # Cleanup CryptoCompare tool session
+            if cryptocompare_tool and hasattr(cryptocompare_tool, 'cleanup'):
                 try:
-                    await coingecko.cleanup()
+                    await cryptocompare_tool.cleanup()
                 except Exception:
                     pass  # Ignore cleanup errors
     
@@ -201,53 +191,42 @@ class ChartDataTool(BaseTool):
         })
     
     async def _get_market_overview_data(self) -> str:
-        """Get real market overview data from CoinGecko API"""
+        """Get market overview data using CryptoCompare API"""
+        cryptocompare_tool = None
         try:
-            from src.tools.coingecko_tool import CoinGeckoTool
+            from src.tools.cryptocompare_tool import CryptoCompareTool
             
-            coingecko = CoinGeckoTool()
+            cryptocompare_tool = CryptoCompareTool()
             
-            # Get top market cap coins
-            url = "https://api.coingecko.com/api/v3/coins/markets"
-            params = {
-                "vs_currency": "usd",
-                "order": "market_cap_desc", 
-                "per_page": 10,
-                "page": 1,
-                "sparkline": False
-            }
+            # Get market overview using CryptoCompare
+            query = "top cryptocurrencies market cap overview"
+            data_result = await cryptocompare_tool._arun(query, {"type": "market_overview"})
             
-            data = await coingecko.make_request(url, params=params)
-            
-            if not data:
-                logger.warning("CoinGecko market data failed, using fallback")
-                return await self._get_mock_market_data()
-            
-            # Format real market data
-            coins = []
-            for coin in data[:10]:
-                coins.append({
-                    "name": coin.get("name", "Unknown"),
-                    "symbol": coin.get("symbol", "").upper(),
-                    "current_price": coin.get("current_price", 0),
-                    "market_cap_rank": coin.get("market_cap_rank", 0),
-                    "price_change_percentage_24h": coin.get("price_change_percentage_24h", 0),
-                    "market_cap": coin.get("market_cap", 0),
-                    "total_volume": coin.get("total_volume", 0)
+            if data_result and not data_result.startswith("❌") and not data_result.startswith("⚠️"):
+                return json.dumps({
+                    "chart_type": "market_overview",
+                    "data": {
+                        "source": "cryptocompare",
+                        "raw_data": data_result
+                    },
+                    "config": {
+                        "title": "Top Cryptocurrencies Market Overview",
+                        "currency": "USD"
+                    }
                 })
-            
-            return json.dumps({
-                "chart_type": "market_overview",
-                "data": {"coins": coins},
-                "config": {
-                    "title": "Top Cryptocurrencies Market Overview",
-                    "currency": "USD"
-                }
-            })
+            else:
+                raise Exception("No valid market data from CryptoCompare")
             
         except Exception as e:
             logger.error(f"Market overview API failed: {e}")
             return await self._get_mock_market_data()
+        finally:
+            # Cleanup CryptoCompare tool session
+            if cryptocompare_tool and hasattr(cryptocompare_tool, 'cleanup'):
+                try:
+                    await cryptocompare_tool.cleanup()
+                except Exception:
+                    pass  # Ignore cleanup errors
     
     async def _get_mock_market_data(self) -> str:
         """Fallback mock market data"""
