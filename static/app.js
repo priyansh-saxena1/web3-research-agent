@@ -1,387 +1,346 @@
+﻿/* ============================================================
+   Web3 Research Co-Pilot — app.js
+   Optimised streaming chat client with inline tool activity
+   ============================================================ */
+// ── State ────────────────────────────────────────────────────
 let chatHistory = [];
-let messageCount = 0;
-let useGemini = false; // Track current LLM choice
-
-// Initialize Gemini toggle
-document.addEventListener('DOMContentLoaded', function() {
-    const geminiToggle = document.getElementById('geminiToggle');
-    const toggleLabel = document.querySelector('.toggle-label');
-    
-    // Load saved preference
-    useGemini = localStorage.getItem('useGemini') === 'true';
-    geminiToggle.checked = useGemini;
-    updateToggleLabel();
-    
-    // Handle toggle changes
-    geminiToggle.addEventListener('change', function() {
-        useGemini = this.checked;
-        localStorage.setItem('useGemini', useGemini.toString());
-        updateToggleLabel();
-        console.log(`Switched to ${useGemini ? 'Gemini' : 'Ollama'} mode`);
-        
-        // Show confirmation
-        showStatus(`Switched to ${useGemini ? 'Gemini (Cloud AI)' : 'Ollama (Local AI)'} mode`, 'info');
-        
-        // Refresh status to reflect changes
-        checkStatus();
-    });
-});
-
-function updateToggleLabel() {
-    const toggleLabel = document.querySelector('.toggle-label');
-    if (toggleLabel) {
-        toggleLabel.textContent = `AI Model: ${useGemini ? 'Gemini' : 'Ollama'}`;
-    }
-}
-
-async function checkStatus() {
-    try {
-        const response = await fetch('/status');
-        const status = await response.json();
-        
-        const statusDiv = document.getElementById('status');
-        
-        if (status.enabled && status.gemini_configured) {
-            statusDiv.className = 'status online';
-            statusDiv.innerHTML = '<span>Research systems online</span>' +
-                '<div style="margin-top: 0.5rem; font-size: 0.85rem; opacity: 0.8;">' +
-                'Tools: ' + status.tools_available.join(' • ') + '</div>';
-        } else {
-            statusDiv.className = 'status offline';
-            statusDiv.innerHTML = '<span>Limited mode - Configure GEMINI_API_KEY for full functionality</span>' +
-                '<div style="margin-top: 0.5rem; font-size: 0.85rem; opacity: 0.8;">' +
-                'Available: ' + status.tools_available.join(' • ') + '</div>';
-        }
-    } catch (error) {
-        const statusDiv = document.getElementById('status');
-        statusDiv.className = 'status offline';
-        statusDiv.innerHTML = '<span>Connection error</span>';
-    }
-}
-
-async function sendQuery() {
-    const input = document.getElementById('queryInput');
-    const sendBtn = document.getElementById('sendBtn');
-    const loadingIndicator = document.getElementById('loadingIndicator');
-    const statusIndicator = document.getElementById('statusIndicator');
-    const statusText = document.getElementById('statusText');
-    const query = input.value.trim();
-
-    if (!query) {
-        showStatus('Please enter a research query', 'warning');
-        return;
-    }
-
-    console.log('Sending research query');
-    addMessage('user', query);
-    input.value = '';
-
-    // Update UI states
-    sendBtn.disabled = true;
-    sendBtn.innerHTML = '<span class="loading">Processing</span>';
-    loadingIndicator.classList.add('active');
-    showStatus('Initializing research...', 'processing');
-
-    try {
-        console.log('Starting streaming API request...');
-        const requestStart = Date.now();
-        
-        // Create an AbortController for manual timeout control
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => {
-            console.log('Manual timeout after 5 minutes');
-            controller.abort();
-        }, 300000); // 5 minute timeout instead of default browser timeout
-        
-        // Use fetch with streaming for POST requests with body
-        const response = await fetch('/query/stream', {
-            method: 'POST',
-            headers: { 
-                'Content-Type': 'application/json',
-                'Accept': 'text/event-stream',
-                'Cache-Control': 'no-cache'
-            },
-            body: JSON.stringify({ 
-                query, 
-                chat_history: chatHistory, 
-                use_gemini: useGemini 
-            }),
-            signal: controller.signal,
-            // Disable browser's default timeout behavior
-            keepalive: true
-        });
-
-        // Clear the timeout since we got a response
-        clearTimeout(timeoutId);
-
-        if (!response.ok) {
-            throw new Error('Request failed with status ' + response.status);
-        }
-
-        const reader = response.body.getReader();
-        const decoder = new TextDecoder();
-        let buffer = '';
-
-        while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-
-            buffer += decoder.decode(value, { stream: true });
-            const lines = buffer.split('\n');
-            buffer = lines.pop(); // Keep incomplete line in buffer
-
-            for (const line of lines) {
-                if (line.startsWith('data: ')) {
-                    try {
-                        const data = JSON.parse(line.substring(6));
-                        
-                        if (data.type === 'status') {
-                            showStatus(data.message, 'processing');
-                            updateProgress(data.progress);
-                            // Also update the loading text
-                            const loadingText = document.getElementById('loadingText');
-                            if (loadingText) {
-                                loadingText.textContent = data.message;
-                            }
-                            console.log('Progress: ' + data.progress + '% - ' + data.message);
-                        } else if (data.type === 'tools') {
-                            showStatus(data.message, 'processing');
-                            // Update loading text for tools
-                            const loadingText = document.getElementById('loadingText');
-                            if (loadingText) {
-                                loadingText.textContent = data.message;
-                            }
-                            console.log('Tools: ' + data.message);
-                        } else if (data.type === 'result') {
-                            const result = data.data;
-                            const requestTime = Date.now() - requestStart;
-                            console.log('Request completed in ' + requestTime + 'ms');
-                            
-                            if (result.success) {
-                                addMessage('assistant', result.response, result.sources, result.visualizations);
-                                showStatus('Research complete', 'success');
-                                console.log('Analysis completed successfully');
-                            } else {
-                                console.log('Analysis request failed');
-                                addMessage('assistant', result.response || 'Analysis temporarily unavailable. Please try again.', [], []);
-                                showStatus('Request failed', 'error');
-                            }
-                        } else if (data.type === 'complete') {
-                            break;
-                        } else if (data.type === 'error') {
-                            throw new Error(data.message);
-                        }
-                    } catch (parseError) {
-                        console.error('Parse error:', parseError);
-                    }
-                }
-            }
-        }
-
-    } catch (error) {
-        console.error('Streaming request error:', error);
-        
-        // More specific error handling
-        if (error.name === 'AbortError') {
-            addMessage('assistant', 'Request timed out after 5 minutes. Ollama may be processing a complex query. Please try a simpler question or wait and try again.');
-            showStatus('Request timed out', 'error');
-        } else if (error.message.includes('Failed to fetch') || error.message.includes('network error')) {
-            addMessage('assistant', 'Network connection error. Please check your internet connection and try again.');
-            showStatus('Connection error', 'error');
-        } else if (error.message.includes('ERR_HTTP2_PROTOCOL_ERROR')) {
-            addMessage('assistant', 'Ollama is still processing your request in the background. Please wait a moment and try again, or try a simpler query.');
-            showStatus('Processing - please retry', 'warning');
-        } else {
-            addMessage('assistant', 'Connection error. Please check your network and try again.');
-            showStatus('Connection error', 'error');
-        }
-    } finally {
-        // Reset UI states
-        sendBtn.disabled = false;
-        sendBtn.innerHTML = 'Research';
-        loadingIndicator.classList.remove('active');
-        input.focus();
-        console.log('Request completed');
-        
-        // Hide status after delay
-        setTimeout(() => hideStatus(), 3000);
-    }
-}
-
-function addMessage(sender, content, sources = [], visualizations = []) {
-    const messagesDiv = document.getElementById('chatMessages');
-    
-    // Clear welcome message
-    if (messageCount === 0) {
-        messagesDiv.innerHTML = '';
-    }
-    messageCount++;
-
-    const messageDiv = document.createElement('div');
-    messageDiv.className = 'message ' + sender;
-
-    let sourcesHtml = '';
-    if (sources && sources.length > 0) {
-        sourcesHtml = `
-            <div class="sources">
-                Sources: ${sources.map(s => `<span>${s}</span>`).join('')}
-            </div>
-        `;
-    }
-
-    let visualizationHtml = '';
-    if (visualizations && visualizations.length > 0) {
-        console.log('Processing visualizations:', visualizations.length);
-        visualizationHtml = visualizations.map((viz, index) => {
-            console.log(`Visualization ${index}:`, viz.substring(0, 100));
-            return `<div class="visualization-container" id="viz-${Date.now()}-${index}">${viz}</div>`;
-        }).join('');
-    }
-
-    // Format content based on sender
-    let formattedContent = content;
-    if (sender === 'assistant') {
-        // Convert markdown to HTML for assistant responses
-        try {
-            formattedContent = marked.parse(content);
-        } catch (error) {
-            // Fallback to basic formatting if marked.js fails
-            console.warn('Markdown parsing failed, using fallback:', error);
-            formattedContent = content
-                .replace(/\n/g, '<br>')
-                .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-                .replace(/\*(.*?)\*/g, '<em>$1</em>')
-                .replace(/`(.*?)`/g, '<code>$1</code>');
-        }
-    } else {
-        // Apply markdown parsing to user messages too
-        try {
-            formattedContent = marked.parse(content);
-        } catch (error) {
-            formattedContent = content.replace(/\n/g, '<br>');
-        }
-    }
-
-    messageDiv.innerHTML = `
-        <div class="message-content">
-            ${formattedContent}
-            ${sourcesHtml}
-        </div>
-        ${visualizationHtml}
-        <div class="message-meta">${new Date().toLocaleTimeString()}</div>
-    `;
-
-    messagesDiv.appendChild(messageDiv);
-    messagesDiv.scrollTop = messagesDiv.scrollHeight;
-
-    // Execute any scripts in the visualizations after DOM insertion
-    if (visualizations && visualizations.length > 0) {
-        console.log('Executing visualization scripts...');
-        setTimeout(() => {
-            const scripts = messageDiv.querySelectorAll('script');
-            console.log(`Found ${scripts.length} scripts to execute`);
-            
-            scripts.forEach((script, index) => {
-                console.log(`Executing script ${index}:`, script.textContent.substring(0, 200) + '...');
-                try {
-                    // Execute script in global context using Function constructor
-                    const scriptFunction = new Function(script.textContent);
-                    scriptFunction.call(window);
-                    console.log(`Script ${index} executed successfully`);
-                } catch (error) {
-                    console.error(`Script ${index} execution error:`, error);
-                    console.error(`Script content preview:`, script.textContent.substring(0, 500));
-                }
-            });
-            console.log('All visualization scripts executed');
-        }, 100);
-    }
-
-    chatHistory.push({ role: sender, content });
-    if (chatHistory.length > 20) chatHistory = chatHistory.slice(-20);
-}
-
-function setQuery(query) {
-    document.getElementById('queryInput').value = query;
-    setTimeout(() => sendQuery(), 100);
-}
-
-// Status management functions
-function showStatus(message, type = 'info') {
-    const statusIndicator = document.getElementById('statusIndicator');
-    const statusText = document.getElementById('statusText');
-    
-    statusText.textContent = message;
-    statusIndicator.className = `status-indicator show ${type}`;
-}
-
-function hideStatus() {
-    const statusIndicator = document.getElementById('statusIndicator');
-    statusIndicator.classList.remove('show');
-}
-
-function updateProgress(progress) {
-    // Update progress bar if it exists
-    const progressBar = document.querySelector('.progress-bar');
-    if (progressBar) {
-        progressBar.style.width = `${progress}%`;
-    }
-    
-    // Update loading indicator text with progress
-    const loadingText = document.getElementById('loadingText');
-    if (loadingText && progress) {
-        loadingText.textContent = `Processing ${progress}%...`;
-    }
-}
-
-// Theme toggle functionality
-function toggleTheme() {
-    const currentTheme = document.documentElement.getAttribute('data-theme');
-    const newTheme = currentTheme === 'light' ? 'dark' : 'light';
-    const themeIcon = document.querySelector('#themeToggle i');
-    
-    document.documentElement.setAttribute('data-theme', newTheme);
-    localStorage.setItem('theme', newTheme);
-    
-    // Update icon
-    if (newTheme === 'light') {
-        themeIcon.className = 'fas fa-sun';
-    } else {
-        themeIcon.className = 'fas fa-moon';
-    }
-}
-
-// Initialize theme
-function initializeTheme() {
-    const savedTheme = localStorage.getItem('theme') || 'dark';
-    const themeIcon = document.querySelector('#themeToggle i');
-    
-    document.documentElement.setAttribute('data-theme', savedTheme);
-    
-    if (savedTheme === 'light') {
-        themeIcon.className = 'fas fa-sun';
-    } else {
-        themeIcon.className = 'fas fa-moon';
-    }
-}
-
-// Event listeners
-document.getElementById('queryInput').addEventListener('keypress', (e) => {
-    if (e.key === 'Enter') sendQuery();
-});
-
-document.getElementById('sendBtn').addEventListener('click', (e) => {
-    console.log('Research button clicked');
-    e.preventDefault();
-    sendQuery();
-});
-
-document.getElementById('themeToggle').addEventListener('click', toggleTheme);
-
-// Initialize
+let useGemini   = false;
+// ── Tool icon map ─────────────────────────────────────────────
+const TOOL_ICONS = {
+    coingecko:     'fa-coins',
+    defillama:     'fa-droplet',
+    cryptocompare: 'fa-chart-bar',
+    etherscan:     'fa-magnifying-glass',
+    chart:         'fa-chart-line',
+    price:         'fa-dollar-sign',
+    market:        'fa-chart-area',
+    gas:           'fa-gas-pump',
+    whale:         'fa-fish',
+    'default':     'fa-gear',
+};
+// ── Marked.js setup ───────────────────────────────────────────
+try {
+    marked.use({ breaks: true, gfm: true });
+} catch(e) { /* older marked version — ignore */ }
+// ── Init ─────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
-    console.log('Application initialized');
-    initializeTheme();
+    initTheme();
+    initModel();
+    initTextarea();
     checkStatus();
     document.getElementById('queryInput').focus();
 });
+// ── Textarea auto-grow ───────────────────────────────────────
+function initTextarea() {
+    const ta = document.getElementById('queryInput');
+    ta.addEventListener('input', () => {
+        ta.style.height = 'auto';
+        ta.style.height = Math.min(ta.scrollHeight, 130) + 'px';
+        document.getElementById('charCount').textContent =
+            `${ta.value.length} / 1000`;
+    });
+    ta.addEventListener('keydown', e => {
+        if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            sendQuery();
+        }
+    });
+}
+// ── Model selection ──────────────────────────────────────────
+function setModel(model) {
+    useGemini = model === 'gemini';
+    localStorage.setItem('useGemini', useGemini);
+    document.getElementById('btnOllama').classList.toggle('active', !useGemini);
+    document.getElementById('btnGemini').classList.toggle('active', useGemini);
+    showToast(`Switched to ${useGemini ? 'Gemini (Cloud)' : 'Ollama (Local)'}`, 'info');
+    checkStatus();
+}
+function initModel() {
+    useGemini = localStorage.getItem('useGemini') === 'true';
+    document.getElementById('btnOllama').classList.toggle('active', !useGemini);
+    document.getElementById('btnGemini').classList.toggle('active', useGemini);
+}
+// ── Status check ─────────────────────────────────────────────
+async function checkStatus() {
+    const badge = document.getElementById('statusBadge');
+    const text  = document.getElementById('statusBadgeText');
+    try {
+        const res  = await fetch('/status');
+        const data = await res.json();
+        if (data.enabled) {
+            badge.className = 'status-badge online';
+            text.textContent = 'Online';
+        } else {
+            badge.className = 'status-badge offline';
+            text.textContent = 'Limited';
+        }
+    } catch {
+        badge.className = 'status-badge offline';
+        text.textContent = 'Offline';
+    }
+}
+// ── Send query ───────────────────────────────────────────────
+async function sendQuery() {
+    const ta      = document.getElementById('queryInput');
+    const sendBtn = document.getElementById('sendBtn');
+    const query   = ta.value.trim();
+    if (!query) return;
+    addMessage('user', query);
+    ta.value = '';
+    ta.style.height = 'auto';
+    document.getElementById('charCount').textContent = '0 / 1000';
+    const thinkingId = showThinking();
+    sendBtn.disabled = true;
+    sendBtn.innerHTML = '<i class="fas fa-circle-notch fa-spin"></i>';
+    try {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 300000);
+        const res = await fetch('/query/stream', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Accept': 'text/event-stream' },
+            body: JSON.stringify({ query, chat_history: chatHistory, use_gemini: useGemini }),
+            signal: controller.signal,
+        });
+        clearTimeout(timer);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const reader  = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer    = '';
+        outer: while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split('\n');
+            buffer = lines.pop(); // keep incomplete line
+            for (const line of lines) {
+                if (!line.startsWith('data: ')) continue;
+                try {
+                    const evt = JSON.parse(line.slice(6));
+                    if (handleStreamEvent(evt, thinkingId) === 'done') break outer;
+                } catch { /* skip malformed JSON */ }
+            }
+        }
+    } catch (err) {
+        removeThinking(thinkingId);
+        if (err.name === 'AbortError') {
+            addMessage('assistant', 'Request timed out after 5 minutes. Try a shorter or simpler query.');
+        } else if (err.message.includes('Failed to fetch')) {
+            addMessage('assistant', 'Network error — please check your connection.');
+        } else {
+            addMessage('assistant', 'An unexpected error occurred. Please try again.');
+        }
+    } finally {
+        sendBtn.disabled = false;
+        sendBtn.innerHTML = '<i class="fas fa-paper-plane"></i>';
+        ta.focus();
+    }
+}
+// ── Handle SSE events ────────────────────────────────────────
+function handleStreamEvent(data, thinkingId) {
+    switch (data.type) {
+        case 'status':
+            updateThinking(thinkingId, data.message, data.progress);
+            break;
+        case 'tools':
+            addToolStep(thinkingId, data.message);
+            break;
+        case 'result':
+            removeThinking(thinkingId);
+            if (data.data && data.data.success) {
+                addMessage('assistant', data.data.response, data.data.sources, data.data.visualizations);
+            } else {
+                const msg = (data.data && data.data.response) || 'Analysis temporarily unavailable.';
+                addMessage('assistant', msg);
+            }
+            return 'done';
+        case 'complete':
+            return 'done';
+        case 'error':
+            removeThinking(thinkingId);
+            addMessage('assistant', data.message || 'An error occurred.');
+            return 'done';
+    }
+}
+// ── Thinking bubble ──────────────────────────────────────────
+function showThinking() {
+    const id   = 'thinking-' + Date.now();
+    const msgs = document.getElementById('chatMessages');
+    clearWelcome();
+    const div = document.createElement('div');
+    div.className = 'message assistant';
+    div.id = id;
+    div.innerHTML = `
+        <div class="thinking-bubble">
+            <div class="thinking-header">
+                <div class="thinking-spinner"></div>
+                <span class="thinking-label" id="${id}-label">Analyzing query…</span>
+            </div>
+            <div class="tool-steps" id="${id}-steps"></div>
+            <div class="progress-strip"><div class="progress-fill" id="${id}-bar"></div></div>
+        </div>
+        <div class="message-time">${fmtTime()}</div>`;
+    msgs.appendChild(div);
+    msgs.scrollTop = msgs.scrollHeight;
+    return id;
+}
+function updateThinking(id, message, progress) {
+    const label = document.getElementById(`${id}-label`);
+    if (label) label.textContent = message;
+    const bar = document.getElementById(`${id}-bar`);
+    if (bar && progress != null) bar.style.width = `${progress}%`;
+}
+function addToolStep(id, message) {
+    const steps = document.getElementById(`${id}-steps`);
+    if (!steps) return;
+
+    // Parse "Available tools: ['CoinGecko', 'DeFiLlama', ...]" into individual rows
+    const listMatch = message.match(/\[(.+)\]/);
+    const toolNames = listMatch
+        ? [...listMatch[1].matchAll(/'([^']+)'/g)].map(m => m[1])
+        : null;
+
+    if (toolNames && toolNames.length > 0) {
+        toolNames.forEach(name => {
+            const step = document.createElement('div');
+            step.className = 'tool-step';
+            step.innerHTML = `<i class="fas ${getToolIcon(name)}"></i><span>${escapeHtml(name)}</span>`;
+            steps.appendChild(step);
+        });
+    } else {
+        const step = document.createElement('div');
+        step.className = 'tool-step';
+        step.innerHTML = `<i class="fas ${getToolIcon(message)}"></i><span>${escapeHtml(message)}</span>`;
+        steps.appendChild(step);
+    }
+
+    document.getElementById('chatMessages').scrollTop = 9999;
+}
+function removeThinking(id) {
+    const el = document.getElementById(id);
+    if (el) el.remove();
+}
+// ── Add message ──────────────────────────────────────────────
+function addMessage(sender, content, sources = [], visualizations = []) {
+    clearWelcome();
+    const msgs = document.getElementById('chatMessages');
+    const div  = document.createElement('div');
+    div.className = `message ${sender}`;
+    // Render content
+    let bodyHtml = '';
+    if (sender === 'assistant') {
+        try   { bodyHtml = `<div class="md-content">${marked.parse(String(content))}</div>`; }
+        catch { bodyHtml = `<div class="md-content">${escapeHtml(String(content)).replace(/\n/g, '<br>')}</div>`; }
+    } else {
+        bodyHtml = `<div class="md-content">${escapeHtml(String(content))}</div>`;
+    }
+    // Sources
+    let srcHtml = '';
+    if (sources && sources.length > 0) {
+        const tags = sources.map(s => `<span class="source-tag">${escapeHtml(s)}</span>`).join('');
+        srcHtml = `<div class="sources-list"><span class="sources-label">Sources</span>${tags}</div>`;
+    }
+    // Visualizations
+    const vizHtml = (visualizations || []).map((v, i) =>
+        `<div class="viz-container" id="viz-${Date.now()}-${i}">${v}</div>`
+    ).join('');
+    div.innerHTML = `
+        <div class="message-bubble">${bodyHtml}${srcHtml}</div>
+        ${vizHtml}
+        <div class="message-time">${fmtTime()}</div>`;
+    msgs.appendChild(div);
+    msgs.scrollTop = msgs.scrollHeight;
+    // Apply syntax highlighting to code blocks
+    if (sender === 'assistant') {
+        requestAnimationFrame(() => {
+            if (typeof hljs !== 'undefined') {
+                div.querySelectorAll('pre code').forEach(b => hljs.highlightElement(b));
+            }
+        });
+    }
+    // Execute embedded Plotly scripts
+    if (visualizations && visualizations.length > 0) {
+        setTimeout(() => {
+            div.querySelectorAll('script').forEach(s => {
+                try { new Function(s.textContent).call(window); }
+                catch (e) { console.warn('Viz script error:', e); }
+            });
+        }, 120);
+    }
+    // Maintain rolling chat history (last 20 turns)
+    chatHistory.push({ role: sender, content });
+    if (chatHistory.length > 20) chatHistory = chatHistory.slice(-20);
+}
+// ── Helpers ──────────────────────────────────────────────────
+function clearWelcome() {
+    const w = document.querySelector('.welcome-screen');
+    if (w) w.remove();
+}
+function setQuery(query) {
+    const ta = document.getElementById('queryInput');
+    ta.value = query;
+    ta.style.height = 'auto';
+    ta.style.height = Math.min(ta.scrollHeight, 130) + 'px';
+    document.getElementById('charCount').textContent = `${query.length} / 1000`;
+    setTimeout(sendQuery, 50);
+}
+function getToolIcon(message) {
+    const m = message.toLowerCase();
+    for (const [key, icon] of Object.entries(TOOL_ICONS)) {
+        if (key !== 'default' && m.includes(key)) return icon;
+    }
+    return TOOL_ICONS.default;
+}
+function escapeHtml(str) {
+    return str
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+}
+function fmtTime() {
+    return new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
+// ── Toast ─────────────────────────────────────────────────────
+let toastTimer = null;
+function showToast(message, type = 'info') {
+    const toast = document.getElementById('statusIndicator');
+    const text  = document.getElementById('statusText');
+    const icon  = toast.querySelector('.toast-icon');
+    const icons = {
+        info:       'fa-circle-info',
+        processing: 'fa-circle-notch fa-spin',
+        success:    'fa-circle-check',
+        error:      'fa-circle-xmark',
+        warning:    'fa-triangle-exclamation',
+    };
+    text.textContent = message;
+    toast.className  = `toast show ${type}`;
+    if (icon) icon.className = `fas ${icons[type] || icons.info} toast-icon`;
+    clearTimeout(toastTimer);
+    if (type !== 'processing') {
+        toastTimer = setTimeout(() => {
+            toast.classList.remove('show');
+        }, 3000);
+    }
+}
+// ── Theme ─────────────────────────────────────────────────────
+function initTheme() {
+    const theme = localStorage.getItem('theme') || 'dark';
+    document.documentElement.setAttribute('data-theme', theme);
+    syncThemeIcon(theme);
+}
+function toggleTheme() {
+    const cur  = document.documentElement.getAttribute('data-theme');
+    const next = cur === 'light' ? 'dark' : 'light';
+    document.documentElement.setAttribute('data-theme', next);
+    localStorage.setItem('theme', next);
+    syncThemeIcon(next);
+}
+function syncThemeIcon(theme) {
+    const icon = document.querySelector('#themeToggle i');
+    if (icon) icon.className = theme === 'light' ? 'fas fa-moon' : 'fas fa-sun';
+}
+// ── Event listeners ───────────────────────────────────────────
+document.getElementById('sendBtn').addEventListener('click', sendQuery);
+document.getElementById('themeToggle').addEventListener('click', toggleTheme);
