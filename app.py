@@ -613,6 +613,72 @@ async def debug_tools():
             "timestamp": datetime.now().isoformat()
         }
 
+@app.get("/debug/files")
+async def debug_files():
+    """Debug endpoint to check static files"""
+    import os
+    
+    files_info = {
+        "BASE_DIR": BASE_DIR,
+        "STATIC_DIR": STATIC_DIR,
+        "TEMPLATES_DIR": TEMPLATES_DIR,
+        "static_exists": os.path.isdir(STATIC_DIR),
+        "templates_exists": os.path.isdir(TEMPLATES_DIR),
+        "static_files": [],
+        "templates_files": []
+    }
+    
+    # List static files
+    if os.path.isdir(STATIC_DIR):
+        for f in os.listdir(STATIC_DIR):
+            fpath = os.path.join(STATIC_DIR, f)
+            files_info["static_files"].append({
+                "name": f,
+                "size": os.path.getsize(fpath),
+                "is_file": os.path.isfile(fpath)
+            })
+    
+    # List template files
+    if os.path.isdir(TEMPLATES_DIR):
+        for f in os.listdir(TEMPLATES_DIR):
+            fpath = os.path.join(TEMPLATES_DIR, f)
+            files_info["templates_files"].append({
+                "name": f,
+                "size": os.path.getsize(fpath),
+                "is_file": os.path.isfile(fpath)
+            })
+    
+    return files_info
+
+@app.get("/debug/css-test")
+async def debug_css_test():
+    """Test if CSS can be read directly"""
+    css_path = os.path.join(STATIC_DIR, "styles.css")
+    
+    try:
+        with open(css_path, 'r') as f:
+            css_content = f.read()
+        
+        return {
+            "success": True,
+            "file_exists": True,
+            "file_path": css_path,
+            "file_size": len(css_content),
+            "first_100_chars": css_content[:100],
+            "css_variables_found": "CSS Variables" in css_content
+        }
+    except FileNotFoundError:
+        return {
+            "success": False,
+            "error": f"File not found: {css_path}",
+            "file_exists": False
+        }
+    except Exception as e:
+        return {
+            "success": False,
+            "error": str(e)
+        }
+
 if __name__ == "__main__":
     import uvicorn
     logger.info("Starting Web3 Research Co-Pilot...")
