@@ -1,5 +1,5 @@
 from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain_community.llms import Ollama
+from langchain_ollama import OllamaLLM
 from langchain_classic.memory import ConversationBufferWindowMemory
 from typing import List, Dict, Any
 import asyncio
@@ -54,7 +54,7 @@ class Web3ResearchAgent:
     def _init_ollama(self):
         """Initialize Ollama LLM with optimized settings"""
         try:
-            self.fallback_llm = Ollama(
+            self.fallback_llm = OllamaLLM(
                 model=config.OLLAMA_MODEL,
                 base_url=config.OLLAMA_BASE_URL,
                 temperature=0.1
