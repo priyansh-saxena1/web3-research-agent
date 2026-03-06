@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 from typing import Dict, Any, Optional, Union
-from langchain.tools import BaseTool
+from langchain_community.tools import BaseTool
 from pydantic import BaseModel, Field, PrivateAttr, field_validator
 import asyncio
 import aiohttp
