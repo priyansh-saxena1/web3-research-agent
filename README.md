@@ -1,129 +1,119 @@
-# 🚀 Web3 Research Co-Pilot
-
-AI-powered cryptocurrency research assistant with comprehensive Web3 data analysis capabilities.
-
-## Features
-
-- **LangChain AI Agent**: Advanced query processing with Google Gemini
-- **Real-time Data**: CoinGecko, DeFiLlama, Etherscan integration  
-- **Interactive UI**: Gradio-based chat interface with visualizations
-- **AIRAA Integration**: Research data forwarding to external platforms
-- **Production Ready**: Comprehensive error handling and async architecture
-
-## Quick Start
-
-### 1. Environment Setup
-
-```bash
-export GEMINI_API_KEY="your_gemini_api_key"
-export ETHERSCAN_API_KEY="your_etherscan_key"  # Optional
-export COINGECKO_API_KEY="your_coingecko_key"  # Optional
-```
-
-### 2. Installation
-
-```bash
-pip install -r requirements.txt
-```
-
-### 3. Launch
-
-```bash
-python launch.py
-```
-
-## API Keys
-
-- **GEMINI_API_KEY** (Required): [Get from Google AI Studio](https://makersuite.google.com/app/apikey)
-- **ETHERSCAN_API_KEY** (Optional): [Get from Etherscan.io](https://etherscan.io/apis)
-- **COINGECKO_API_KEY** (Optional): [Get from CoinGecko](https://www.coingecko.com/en/api/pricing)
-
-## Architecture
-
-```
-├── app.py                 # Main Gradio application
-├── src/
-│   ├── agent/            # LangChain AI agent
-│   ├── tools/            # Web3 data tools
-│   ├── api/              # External integrations
-│   └── utils/            # Configuration & utilities
-└── launch.py             # Launch script
-```
-
-## Usage Examples
-
-- "What is the current price of Bitcoin?"
-- "Analyze Ethereum's DeFi ecosystem"
-- "Show me gas prices and network stats"
-- "Research the top DeFi protocols by TVL"
-
-## Deployment
-
-Configured for HuggingFace Spaces with automatic dependency management.
-
+---
+title: Web3 Research Co-Pilot
+emoji: 🚀
+colorFrom: blue
+colorTo: green
+sdk: docker
+app_file: app.py
+dockerfile: Dockerfile
+license: mit
+tags:
+- cryptocurrency
+- blockchain
+- defi
+- ai-research
+- ollama
+- llama3
+pinned: false
+header: default
+short_description: AI-powered crypto research with real-time blockchain data
+suggested_hardware: t4-medium
 ---
 
-**Built with minimal, expert-level code and production-grade error handling.**
+# Web3 Research Co-Pilot 🚀
 
-## Features
+An AI-powered cryptocurrency research assistant that provides real-time blockchain analytics, DeFi insights, and market intelligence using Llama 8B and comprehensive API integrations.
 
-- **Real-time Market Analysis**: CoinGecko, DeFiLlama, Etherscan integration
-- **AI Research Agent**: Powered by Google Gemini
-- **Interactive Interface**: Modern Gradio UI
-- **Data Visualization**: Price charts and market overviews
-- **AIRAA Integration**: Webhook support for external platforms
+## ✨ Features
 
-## Quick Start
+- **🤖 AI-Powered Analysis**: Uses Llama 8B model via Ollama for intelligent responses
+- **🔗 Real-Time Data**: Integrates with CryptoCompare, DeFiLlama, Etherscan APIs
+- **🛡️ AI Safety**: Built-in content filtering and safety guardrails
+- **📊 Interactive UI**: Modern web interface with dark/light themes
+- **⚡ Streaming Responses**: Real-time progress updates during analysis
+- **🔄 Comprehensive Tools**: 5+ specialized cryptocurrency research tools
 
-1. **Clone and Setup**
+## 🛠️ Technical Stack
+
+- **Backend**: FastAPI with Python 3.11
+- **AI Model**: Llama 3 8B via Ollama (local inference)
+- **Frontend**: Vanilla JavaScript with modern CSS
+- **APIs**: CryptoCompare, DeFiLlama, Etherscan, CoinGecko
+- **Safety**: Custom AI safety module with content filtering
+- **Deployment**: Docker for HuggingFace Spaces
+
+## 🚀 Usage
+
+Ask questions like:
+- "Analyze Bitcoin price trends and institutional adoption patterns"
+- "Compare top DeFi protocols by TVL and yield metrics"
+- "What are the current Ethereum gas fees?"
+- "Track whale movements in Bitcoin today"
+
+## 🔧 Development
+
+### Local Setup
 ```bash
-git clone <repository-url>
-cd web3-research-agent
+# Clone the repository
+git clone https://huggingface.co/spaces/your-username/web3-research-copilot
+cd web3-research-copilot
+
+# Install dependencies
 pip install -r requirements.txt
-```
 
-2. **Environment Configuration**
-```bash
-cp .env.example .env
-# Edit .env with your API keys
-```
+# Start Ollama (in separate terminal)
+ollama serve
+ollama pull llama3:8b
 
-3. **Run Application**
-```bash
+# Run the application
 python app.py
 ```
 
-## Required API Keys
-
-- `GEMINI_API_KEY`: Google Gemini AI (required)
-- `ETHERSCAN_API_KEY`: Ethereum blockchain data
-- `COINGECKO_API_KEY`: Cryptocurrency market data (optional)
-- `AIRAA_WEBHOOK_URL`: External integration (optional)
-
-## Deployment
-
-### Docker
+### Docker Deployment
 ```bash
-docker build -t web3-research-agent .
-docker run -p 7860:7860 --env-file .env web3-research-agent
+# Build and run with Docker
+docker build -f Dockerfile.hf -t web3-copilot .
+docker run -p 7860:7860 -p 11434:11434 web3-copilot
 ```
 
-### Hugging Face Spaces
-Upload repository to HF Spaces with environment variables configured.
+## 📁 Project Structure
 
-## Architecture
+```
+├── app.py                 # Main FastAPI application
+├── templates/             # HTML templates
+├── static/               # CSS and JavaScript files
+├── src/
+│   ├── agent/            # AI research agent
+│   ├── tools/            # API integration tools
+│   └── utils/            # Configuration and safety
+├── Dockerfile.hf         # HuggingFace Spaces Docker config
+└── requirements.txt      # Python dependencies
+```
 
-- **Agent**: LangChain-based research agent with memory
-- **Tools**: Modular API integrations (CoinGecko, DeFiLlama, Etherscan)
-- **UI**: Gradio interface with chat and visualization
-- **Cache**: Optimized caching for API responses
-- **Integration**: AIRAA webhook support
+## 🛡️ AI Safety Features
 
-## Usage Examples
+- Input sanitization and validation
+- Rate limiting protection
+- Content filtering for harmful requests
+- Response safety validation
+- Comprehensive logging for monitoring
 
-- "Bitcoin price analysis and market sentiment"
-- "Top DeFi protocols by TVL"
-- "Ethereum gas prices and network stats" 
-- "Compare BTC vs ETH performance"
+## 📊 Supported APIs
 
-Built with ❤️ for Web3 research
+- **CryptoCompare**: Price data and market statistics
+- **DeFiLlama**: Protocol TVL and DeFi analytics  
+- **Etherscan**: Ethereum network data and gas prices
+- **CoinGecko**: Cryptocurrency market data
+- **Custom Chart Data**: Historical price analysis
+
+## 🤝 Contributing
+
+This project implements responsible AI practices and focuses on legitimate cryptocurrency research and education.
+
+## 📄 License
+
+MIT License - see LICENSE file for details
+
+---
+
+Built with ❤️ for the crypto research community

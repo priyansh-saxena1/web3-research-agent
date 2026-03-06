@@ -25,7 +25,7 @@ class EtherscanTool(BaseWeb3Tool):
         if not self.enabled:
             logger.warning("Etherscan API key not configured - limited functionality")
     
-    async def _arun(self, query: str, filters: Optional[Dict[str, Any]] = None) -> str:
+    async def _arun(self, query: str, filters: Optional[Dict[str, Any]] = None, **kwargs) -> str:
         if not self.enabled:
             return "⚠️ **Etherscan Service Limited**\n\nEtherscan functionality requires an API key.\nGet yours free at: https://etherscan.io/apis\n\nSet environment variable: `ETHERSCAN_API_KEY=your_key`"
         

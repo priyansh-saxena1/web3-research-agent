@@ -23,7 +23,7 @@ class CoinGeckoTool(BaseWeb3Tool):
     def __init__(self):
         super().__init__()
 
-    async def _arun(self, query: str, filters: Optional[Dict[str, Any]] = None) -> str:
+    async def _arun(self, query: str, filters: Optional[Dict[str, Any]] = None, **kwargs) -> str:
         filters = filters or {}
         try:
             # Check cache first

@@ -1,37 +1,108 @@
-# Use Python 3.11 slim image for HuggingFace Spaces
+# Multi-stage Dockerfile for HuggingFace Spaces with Ollama
 FROM python:3.11-slim
+
+# Set environment variables
+ENV PYTHONUNBUFFERED=1
+ENV DEBIAN_FRONTEND=noninteractive
+ENV OLLAMA_HOST=0.0.0.0
+ENV OLLAMA_PORT=11434
+ENV OLLAMA_HOME=/app/.ollama
+ENV HOME=/app
+ENV PYTHONPATH=/app
 
 # Set working directory
 WORKDIR /app
 
-# Install system dependencies
+# Install system dependencies including Ollama requirements
 RUN apt-get update && apt-get install -y \
     curl \
+    wget \
+    build-essential \
+    git \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy requirements first for better caching
-COPY requirements.txt .
+# Install Ollama
+RUN curl -fsSL https://ollama.ai/install.sh | sh
 
-# Install Python dependencies
-RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir -r requirements.txt
+# Copy requirements first for better Docker caching
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy application code
 COPY . .
 
-# Create necessary directories
-RUN mkdir -p logs cache
+# Create necessary directories including Ollama data directory
+RUN mkdir -p logs cache templates static $OLLAMA_HOME \
+    && chown -R 1000:1000 /app \
+    && chmod -R 755 /app
 
-# Set environment variables for HuggingFace Spaces
-ENV PYTHONPATH=/app
-ENV PYTHONUNBUFFERED=1
+# Expose ports for both app and Ollama
+EXPOSE 7860 11434
 
-# Expose port 7860 (HuggingFace Spaces default)
-EXPOSE 7860
+# Create startup script
+RUN echo '#!/bin/bash\n\
+set -e\n\
+echo "🚀 Starting HuggingFace Spaces Web3 Research Co-Pilot..."\n\
+\n\
+# Create Ollama data directory with proper permissions\n\
+echo "🗂️  Setting up Ollama data directory..."\n\
+mkdir -p /app/.ollama\n\
+chmod -R 755 /app/.ollama\n\
+chown -R $(whoami):$(whoami) /app/.ollama 2>/dev/null || true\n\
+echo "Directory created: $(ls -la /app/.ollama)"\n\
+\n\
+# Start Ollama server with explicit home directory\n\
+echo "📦 Starting Ollama server with data directory /app/.ollama..."\n\
+export HOME=/app\n\
+export OLLAMA_HOME=/app/.ollama\n\
+cd /app\n\
+ollama serve &\n\
+OLLAMA_PID=$!\n\
+\n\
+# Wait for Ollama to be ready\n\
+echo "⏳ Waiting for Ollama to be ready..."\n\
+while ! curl -s http://localhost:11434/api/tags > /dev/null; do\n\
+  sleep 2\n\
+  echo "   ... still waiting for Ollama"\n\
+done\n\
+\n\
+echo "✅ Ollama server is ready!"\n\
+\n\
+# Pull the Llama 3.1 8B model\n\
+echo "📥 Pulling llama3.1:8b model (this may take a few minutes)..."\n\
+export HOME=/app\n\
+export OLLAMA_HOME=/app/.ollama\n\
+cd /app\n\
+ollama pull llama3.1:8b\n\
+echo "✅ Model llama3.1:8b ready!"\n\
+\n\
+# Start the main application\n\
+echo "🌐 Starting Web3 Research Co-Pilot web application..."\n\
+echo "🔍 Running startup validation..."\n\
+python validate_startup.py || exit 1\n\
+python app.py &\n\
+APP_PID=$!\n\
+\n\
+# Function to handle shutdown\n\
+cleanup() {\n\
+    echo "🛑 Shutting down gracefully..."\n\
+    kill $APP_PID $OLLAMA_PID 2>/dev/null || true\n\
+    wait $APP_PID $OLLAMA_PID 2>/dev/null || true\n\
+    echo "✅ Shutdown complete"\n\
+}\n\
+\n\
+# Set up signal handlers\n\
+trap cleanup SIGTERM SIGINT\n\
+\n\
+# Wait for processes\n\
+wait $APP_PID $OLLAMA_PID' > start.sh
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --retries=3 \
+# Make startup script executable
+RUN chmod +x start.sh
+
+# Health check with longer startup time for model download
+HEALTHCHECK --interval=30s --timeout=10s --start-period=600s --retries=3 \
     CMD curl -f http://localhost:7860/health || exit 1
 
-# Run the application
-CMD ["python", "app_fastapi.py"]
+# Start command
+CMD ["./start.sh"]

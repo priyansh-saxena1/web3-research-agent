@@ -1,11 +1,12 @@
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from pydantic import BaseModel
 import asyncio
 import json
 from datetime import datetime
+import time
 from typing import List, Dict, Any, Optional
 import os
 from dotenv import load_dotenv
@@ -28,10 +29,15 @@ app = FastAPI(
     version="2.0.0"
 )
 
+# Mount static files and templates
+app.mount("/static", StaticFiles(directory="static"), name="static")
+templates = Jinja2Templates(directory="templates")
+
 # Pydantic models
 class QueryRequest(BaseModel):
     query: str
     chat_history: Optional[List[Dict[str, str]]] = []
+    use_gemini: bool = False
 
 class QueryResponse(BaseModel):
     success: bool
@@ -44,44 +50,57 @@ class QueryResponse(BaseModel):
 class Web3CoPilotService:
     def __init__(self):
         try:
-            logger.info("Initializing Web3 Research Co-Pilot...")
+            logger.info("Initializing Web3 Research Service...")
             
-            if config.GEMINI_API_KEY:
-                logger.info("Initializing AI research agent...")
+            # Initialize research agent (supports Ollama-only mode)
+            if config.USE_OLLAMA_ONLY or config.GEMINI_API_KEY:
+                logger.info("AI research capabilities enabled")
                 self.agent = Web3ResearchAgent()
-                logger.info("AI research agent initialized")
+                self.enabled = self.agent.enabled
             else:
-                logger.warning("GEMINI_API_KEY not configured - limited functionality")
+                logger.info("AI research capabilities disabled - configuration required")
                 self.agent = None
+                self.enabled = False
             
-            logger.info("Initializing integrations...")
-            self.airaa = AIRAAIntegration()
+            # Initialize integrations
+            logger.info("Initializing external integrations...")
+            try:
+                self.airaa = AIRAAIntegration()
+            except Exception as e:
+                logger.warning("External integration unavailable")
+                self.airaa = None
             
-            self.enabled = bool(config.GEMINI_API_KEY)
-            self.visualizer = CryptoVisualizations()
-            
-            logger.info(f"Service initialized (AI enabled: {self.enabled})")
+            # Initialize visualization tools
+            try:
+                self.viz = CryptoVisualizations()
+            except Exception as e:
+                logger.warning("Visualization tools unavailable")
+                self.viz = None
+                
+            logger.info(f"Service initialized successfully (AI enabled: {self.enabled})")
             
         except Exception as e:
-            logger.error(f"Service initialization failed: {e}")
+            logger.error(f"Service initialization failed")
+            self.enabled = False
             self.agent = None
             self.airaa = None
-            self.enabled = False
-            self.visualizer = CryptoVisualizations()
+            self.viz = None
     
-    async def process_query(self, query: str) -> QueryResponse:
-        """Process research query with visualizations"""
-        logger.info(f"Processing query: {query[:100]}...")
+    async def process_query(self, query: str, use_gemini: bool = False) -> QueryResponse:
+        """Process research query with comprehensive analysis"""
+        logger.info("Processing research request...")
         
         if not query.strip():
+            logger.warning("Empty query received")
             return QueryResponse(
-                success=False, 
+                success=False,
                 response="Please provide a research query.", 
                 error="Empty query"
             )
-        
+            
         try:
             if not self.enabled:
+                logger.info("Processing in limited mode")
                 response = """**Research Assistant - Limited Mode**
 
 API access available for basic cryptocurrency data:
@@ -92,43 +111,61 @@ API access available for basic cryptocurrency data:
 Configure GEMINI_API_KEY environment variable for full AI analysis."""
                 return QueryResponse(success=True, response=response, sources=["System"])
             
-            logger.info("Processing with AI research agent...")
-            result = await self.agent.research_query(query)
+            logger.info("🤖 Processing with AI research agent...")
+            logger.info(f"🛠️ Available tools: {[tool.name for tool in self.agent.tools] if self.agent else []}")
+            
+            result = await self.agent.research_query(query, use_gemini=use_gemini)
+            logger.info(f"🔄 Agent research completed: success={result.get('success')}")
             
             if result.get("success"):
                 response = result.get("result", "No analysis generated")
                 sources = result.get("sources", [])
                 metadata = result.get("metadata", {})
                 
-                # Generate visualizations if relevant data is available
+                logger.info(f"📊 Response generated: {len(response)} chars, {len(sources)} sources")
+                
+                # Check for chart data and generate visualizations
                 visualizations = []
+                chart_data = await self._extract_chart_data_from_response(response)
+                if chart_data:
+                    chart_html = await self._generate_chart_from_data(chart_data)
+                    if chart_html:
+                        visualizations.append(chart_html)
+                        logger.info("✅ Chart generated from structured data")
+                
+                # Clean the response for user display
+                cleaned_response = self._clean_agent_response(response)
+                    
+                # Generate visualizations if relevant data is available  
                 if metadata:
+                    logger.info("📈 Checking for visualization data...")
                     vis_html = await self._generate_visualizations(metadata, query)
                     if vis_html:
                         visualizations.append(vis_html)
+                        logger.info("✅ Visualization generated")
                 
                 # Send to AIRAA if enabled
                 if self.airaa and self.airaa.enabled:
                     try:
                         await self.airaa.send_research_data(query, response)
-                        logger.info("Data sent to AIRAA")
+                        logger.info("📤 Data sent to AIRAA")
                     except Exception as e:
-                        logger.warning(f"AIRAA integration failed: {e}")
+                        logger.warning(f"⚠️ AIRAA integration failed: {e}")
                 
                 return QueryResponse(
                     success=True, 
-                    response=response, 
+                    response=cleaned_response, 
                     sources=sources, 
                     metadata=metadata,
                     visualizations=visualizations
                 )
             else:
                 error_msg = result.get("error", "Research analysis failed")
-                logger.error(f"Research failed: {error_msg}")
+                logger.error(f"❌ Research failed: {error_msg}")
                 return QueryResponse(success=False, response=error_msg, error=error_msg)
             
         except Exception as e:
-            logger.error(f"Query processing error: {e}")
+            logger.error(f"💥 Query processing error: {e}", exc_info=True)
             error_msg = f"Processing error: {str(e)}"
             return QueryResponse(success=False, response=error_msg, error=error_msg)
     
@@ -165,616 +202,197 @@ Configure GEMINI_API_KEY environment variable for full AI analysis."""
             if symbol in query_upper:
                 return symbol
         return 'BTC'  # Default
+    
+    async def _extract_chart_data_from_response(self, response: str) -> Optional[Dict[str, Any]]:
+        """Extract chart data JSON from agent response"""
+        try:
+            import re
+            import json
+            
+            logger.info(f"🔍 Checking response for chart data (length: {len(response)} chars)")
+            
+            # Look for JSON objects containing chart_type - find opening brace and matching closing brace
+            chart_data_found = None
+            lines = response.split('\n')
+            
+            for i, line in enumerate(lines):
+                if '"chart_type"' in line and line.strip().startswith('{'):
+                    # Found potential start of chart JSON
+                    json_start = i
+                    brace_count = 0
+                    json_lines = []
+                    
+                    for j in range(i, len(lines)):
+                        current_line = lines[j]
+                        json_lines.append(current_line)
+                        
+                        # Count braces to find matching close
+                        brace_count += current_line.count('{') - current_line.count('}')
+                        
+                        if brace_count == 0:
+                            # Found complete JSON object
+                            json_text = '\n'.join(json_lines)
+                            try:
+                                chart_data = json.loads(json_text.strip())
+                                if chart_data.get("chart_type") and chart_data.get("chart_type") != "error":
+                                    logger.info(f"✅ Found valid chart data: {chart_data.get('chart_type')}")
+                                    return chart_data
+                            except json.JSONDecodeError:
+                                # Try without newlines
+                                try:
+                                    json_text_clean = json_text.replace('\n', '').replace('  ', ' ')
+                                    chart_data = json.loads(json_text_clean)
+                                    if chart_data.get("chart_type") and chart_data.get("chart_type") != "error":
+                                        logger.info(f"✅ Found valid chart data (cleaned): {chart_data.get('chart_type')}")
+                                        return chart_data
+                                except json.JSONDecodeError:
+                                    continue
+                            break
+            
+            # Fallback to original regex approach for single-line JSON
+            json_pattern = r'\{[^{}]*"chart_type"[^{}]*\}|\{(?:[^{}]|\{[^{}]*\})*"chart_type"(?:[^{}]|\{[^{}]*\})*\}'
+            matches = re.findall(json_pattern, response, re.DOTALL)
+            
+            logger.info(f"   Found {len(matches)} potential chart data objects")
+            
+            for match in matches:
+                try:
+                    # Clean up the JSON
+                    cleaned_match = match.replace('\\"', '"').replace('\\n', '\n')
+                    chart_data = json.loads(cleaned_match)
+                    
+                    if chart_data.get("chart_type") and chart_data.get("chart_type") != "error":
+                        logger.info(f"✅ Valid chart data found: {chart_data.get('chart_type')}")
+                        return chart_data
+                        
+                except json.JSONDecodeError:
+                    continue
+                    
+            logger.info("⚠️ No valid chart data found in response")
+            return None
+            
+        except Exception as e:
+            logger.error(f"Chart data extraction error: {e}")
+            return None
+    
+    async def _generate_chart_from_data(self, chart_data: Dict[str, Any]) -> Optional[str]:
+        """Generate HTML visualization from chart data"""
+        try:
+            if not self.viz:
+                logger.warning("Visualization tools not available")
+                return None
+                
+            chart_type = chart_data.get("chart_type")
+            data = chart_data.get("data", {})
+            config = chart_data.get("config", {})
+            
+            logger.info(f"Generating {chart_type} chart with data keys: {list(data.keys())}")
+            
+            if chart_type == "price_chart":
+                fig = self.viz.create_price_chart(data, data.get("symbol", "BTC"))
+            elif chart_type == "market_overview":
+                fig = self.viz.create_market_overview(data.get("coins", []))
+            elif chart_type == "defi_tvl":
+                fig = self.viz.create_defi_tvl_chart(data.get("protocols", []))
+            elif chart_type == "portfolio_pie":
+                # Convert allocation data to the expected format
+                allocations = {item["name"]: item["value"] for item in data.get("allocations", [])}
+                fig = self.viz.create_portfolio_pie_chart(allocations)
+            elif chart_type == "gas_tracker":
+                fig = self.viz.create_gas_tracker(data)
+            else:
+                logger.warning(f"Unknown chart type: {chart_type}")
+                return None
+                
+            # Convert to HTML - use div_id and config for embedding
+            chart_id = f'chart_{chart_type}_{int(time.time())}'
+            
+            # Generate HTML with inline Plotly for reliable rendering
+            html = fig.to_html(
+                include_plotlyjs='inline',  # Embed Plotly directly - no CDN issues
+                div_id=chart_id,
+                config={'responsive': True, 'displayModeBar': False}
+            )
+            
+            # With inline Plotly, we need to extract the body content only
+            import re
+            # Extract everything between <body> and </body>
+            body_match = re.search(r'<body[^>]*>(.*?)</body>', html, re.DOTALL)
+            if body_match:
+                chart_html = body_match.group(1).strip()
+                logger.info(f"✅ Chart HTML generated ({len(chart_html)} chars) - inline format")
+                return chart_html
+            else:
+                # Fallback - return the full HTML minus the html/head/body tags
+                # Remove full document structure, keep only the content
+                cleaned_html = re.sub(r'<html[^>]*>.*?<body[^>]*>', '', html, flags=re.DOTALL)
+                cleaned_html = re.sub(r'</body>.*?</html>', '', cleaned_html, flags=re.DOTALL)
+                logger.info(f"✅ Chart HTML generated ({len(cleaned_html)} chars) - cleaned format")
+                return cleaned_html.strip()
+            
+        except Exception as e:
+            logger.error(f"Chart generation error: {e}")
+            return None
+    def _clean_agent_response(self, response: str) -> str:
+        """Clean agent response by removing JSON data blocks"""
+        try:
+            import re
+            
+            # Method 1: Remove complete JSON objects with balanced braces that contain chart_type
+            lines = response.split('\n')
+            cleaned_lines = []
+            skip_mode = False
+            brace_count = 0
+            
+            for line in lines:
+                if not skip_mode:
+                    if '"chart_type"' in line and line.strip().startswith('{'):
+                        # Found start of chart JSON - start skipping
+                        skip_mode = True
+                        brace_count = line.count('{') - line.count('}')
+                        if brace_count == 0:
+                            # Single line JSON, skip this line
+                            skip_mode = False
+                        continue
+                    else:
+                        cleaned_lines.append(line)
+                else:
+                    # In skip mode - count braces to find end
+                    brace_count += line.count('{') - line.count('}')
+                    if brace_count <= 0:
+                        # Found end of JSON block
+                        skip_mode = False
+                    # Skip this line in any case
+            
+            cleaned = '\n'.join(cleaned_lines)
+            
+            # Method 2: Fallback regex for any remaining JSON patterns
+            json_patterns = [
+                r'\{[^{}]*"chart_type"[^{}]*\}',  # Simple single-line JSON
+                r'```json\s*\{.*?"chart_type".*?\}\s*```',  # Markdown JSON blocks
+            ]
+            
+            for pattern in json_patterns:
+                cleaned = re.sub(pattern, '', cleaned, flags=re.DOTALL)
+            
+            # Clean up extra whitespace
+            cleaned = re.sub(r'\n\s*\n\s*\n+', '\n\n', cleaned)
+            cleaned = cleaned.strip()
+            
+            return cleaned
+            
+        except Exception as e:
+            logger.error(f"Response cleaning error: {e}")
+            return response
 
 # Initialize service
 service = Web3CoPilotService()
 
+
 @app.get("/", response_class=HTMLResponse)
 async def get_homepage(request: Request):
-    """Serve minimalist, professional interface"""
-    html_content = """
-    <!DOCTYPE html>
-    <html lang="en">
-    <head>
-        <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Web3 Research Co-Pilot</title>
-        <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 24 24%22><path fill=%22%2300d4aa%22 d=%22M12 2L2 7v10c0 5.5 3.8 7.7 9 9 5.2-1.3 9-3.5 9-9V7l-10-5z%22/></svg>">
-        
-        <style>
-            :root {
-                --primary: #0066ff;
-                --primary-dark: #0052cc;
-                --accent: #00d4aa;
-                --background: #000000;
-                --surface: #111111;
-                --surface-elevated: #1a1a1a;
-                --text: #ffffff;
-                --text-secondary: #a0a0a0;
-                --text-muted: #666666;
-                --border: rgba(255, 255, 255, 0.08);
-                --border-focus: rgba(0, 102, 255, 0.3);
-                --shadow: rgba(0, 0, 0, 0.4);
-                --success: #00d4aa;
-                --warning: #ffa726;
-                --error: #f44336;
-            }
-
-            * {
-                margin: 0;
-                padding: 0;
-                box-sizing: border-box;
-            }
-
-            body {
-                font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', system-ui, sans-serif;
-                background: var(--background);
-                color: var(--text);
-                line-height: 1.5;
-                min-height: 100vh;
-                font-weight: 400;
-                -webkit-font-smoothing: antialiased;
-                -moz-osx-font-smoothing: grayscale;
-            }
-
-            .container {
-                max-width: 1000px;
-                margin: 0 auto;
-                padding: 2rem 1.5rem;
-            }
-
-            .header {
-                text-align: center;
-                margin-bottom: 2.5rem;
-            }
-
-            .header h1 {
-                font-size: 2.25rem;
-                font-weight: 600;
-                color: var(--text);
-                margin-bottom: 0.5rem;
-                letter-spacing: -0.025em;
-            }
-
-            .header .brand {
-                color: var(--primary);
-            }
-
-            .header p {
-                color: var(--text-secondary);
-                font-size: 1rem;
-                font-weight: 400;
-            }
-
-            .status {
-                background: var(--surface);
-                border: 1px solid var(--border);
-                border-radius: 12px;
-                padding: 1rem 1.5rem;
-                margin-bottom: 2rem;
-                text-align: center;
-                transition: all 0.2s ease;
-            }
-
-            .status.online {
-                border-color: var(--success);
-                background: linear-gradient(135deg, rgba(0, 212, 170, 0.05), rgba(0, 212, 170, 0.02));
-            }
-
-            .status.offline {
-                border-color: var(--error);
-                background: linear-gradient(135deg, rgba(244, 67, 54, 0.05), rgba(244, 67, 54, 0.02));
-            }
-
-            .status.checking {
-                border-color: var(--warning);
-                background: linear-gradient(135deg, rgba(255, 167, 38, 0.05), rgba(255, 167, 38, 0.02));
-                animation: pulse 2s infinite;
-            }
-
-            @keyframes pulse {
-                0%, 100% { opacity: 1; }
-                50% { opacity: 0.8; }
-            }
-
-            .chat-interface {
-                background: var(--surface);
-                border: 1px solid var(--border);
-                border-radius: 16px;
-                overflow: hidden;
-                margin-bottom: 2rem;
-                backdrop-filter: blur(20px);
-            }
-
-            .chat-messages {
-                height: 480px;
-                overflow-y: auto;
-                padding: 2rem;
-                background: linear-gradient(180deg, var(--background), var(--surface));
-            }
-
-            .chat-messages::-webkit-scrollbar {
-                width: 3px;
-            }
-
-            .chat-messages::-webkit-scrollbar-track {
-                background: transparent;
-            }
-
-            .chat-messages::-webkit-scrollbar-thumb {
-                background: var(--border);
-                border-radius: 2px;
-            }
-
-            .message {
-                margin-bottom: 2rem;
-                opacity: 0;
-                animation: messageSlide 0.4s cubic-bezier(0.2, 0, 0.2, 1) forwards;
-            }
-
-            @keyframes messageSlide {
-                from { 
-                    opacity: 0; 
-                    transform: translateY(20px) scale(0.98); 
-                }
-                to { 
-                    opacity: 1; 
-                    transform: translateY(0) scale(1); 
-                }
-            }
-
-            .message.user {
-                text-align: right;
-            }
-
-            .message.assistant {
-                text-align: left;
-            }
-
-            .message-content {
-                display: inline-block;
-                max-width: 75%;
-                padding: 1.25rem 1.5rem;
-                border-radius: 24px;
-                font-size: 0.95rem;
-                line-height: 1.6;
-                position: relative;
-            }
-
-            .message.user .message-content {
-                background: linear-gradient(135deg, var(--primary), var(--primary-dark));
-                color: #ffffff;
-                border-bottom-right-radius: 8px;
-                box-shadow: 0 4px 12px rgba(0, 102, 255, 0.2);
-            }
-
-            .message.assistant .message-content {
-                background: var(--surface-elevated);
-                color: var(--text);
-                border-bottom-left-radius: 8px;
-                border: 1px solid var(--border);
-            }
-
-            .message-meta {
-                font-size: 0.75rem;
-                color: var(--text-muted);
-                margin-top: 0.5rem;
-                font-weight: 500;
-            }
-
-            .sources {
-                margin-top: 1rem;
-                padding-top: 1rem;
-                border-top: 1px solid var(--border);
-                font-size: 0.8rem;
-                color: var(--text-secondary);
-            }
-
-            .sources span {
-                display: inline-block;
-                background: rgba(0, 102, 255, 0.1);
-                border: 1px solid rgba(0, 102, 255, 0.2);
-                padding: 0.25rem 0.75rem;
-                border-radius: 6px;
-                margin: 0.25rem 0.5rem 0.25rem 0;
-                font-weight: 500;
-                font-size: 0.75rem;
-            }
-
-            .input-area {
-                padding: 2rem;
-                background: linear-gradient(180deg, var(--surface), var(--surface-elevated));
-                border-top: 1px solid var(--border);
-            }
-
-            .input-container {
-                display: flex;
-                gap: 1rem;
-                align-items: stretch;
-            }
-
-            .input-field {
-                flex: 1;
-                padding: 1rem 1.5rem;
-                background: var(--background);
-                border: 2px solid var(--border);
-                border-radius: 28px;
-                color: var(--text);
-                font-size: 0.95rem;
-                outline: none;
-                transition: all 0.2s cubic-bezier(0.2, 0, 0.2, 1);
-                font-weight: 400;
-            }
-
-            .input-field:focus {
-                border-color: var(--primary);
-                box-shadow: 0 0 0 4px var(--border-focus);
-                background: var(--surface);
-            }
-
-            .input-field::placeholder {
-                color: var(--text-muted);
-                font-weight: 400;
-            }
-
-            .send-button {
-                padding: 1rem 2rem;
-                background: linear-gradient(135deg, var(--primary), var(--primary-dark));
-                color: #ffffff;
-                border: none;
-                border-radius: 28px;
-                font-weight: 600;
-                cursor: pointer;
-                transition: all 0.2s cubic-bezier(0.2, 0, 0.2, 1);
-                font-size: 0.95rem;
-                box-shadow: 0 4px 12px rgba(0, 102, 255, 0.2);
-            }
-
-            .send-button:hover:not(:disabled) {
-                transform: translateY(-2px);
-                box-shadow: 0 8px 24px rgba(0, 102, 255, 0.3);
-            }
-
-            .send-button:active {
-                transform: translateY(0);
-            }
-
-            .send-button:disabled {
-                opacity: 0.6;
-                cursor: not-allowed;
-                transform: none;
-                box-shadow: 0 4px 12px rgba(0, 102, 255, 0.1);
-            }
-
-            .examples {
-                display: grid;
-                grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-                gap: 1rem;
-                margin-top: 1rem;
-            }
-
-            .example {
-                background: linear-gradient(135deg, var(--surface), var(--surface-elevated));
-                border: 1px solid var(--border);
-                border-radius: 12px;
-                padding: 1.5rem;
-                cursor: pointer;
-                transition: all 0.3s cubic-bezier(0.2, 0, 0.2, 1);
-                position: relative;
-                overflow: hidden;
-            }
-
-            .example::before {
-                content: '';
-                position: absolute;
-                top: 0;
-                left: -100%;
-                width: 100%;
-                height: 100%;
-                background: linear-gradient(90deg, transparent, rgba(0, 102, 255, 0.05), transparent);
-                transition: left 0.5s ease;
-            }
-
-            .example:hover::before {
-                left: 100%;
-            }
-
-            .example:hover {
-                border-color: var(--primary);
-                transform: translateY(-4px);
-                box-shadow: 0 12px 32px rgba(0, 0, 0, 0.2);
-                background: linear-gradient(135deg, var(--surface-elevated), var(--surface));
-            }
-
-            .example-title {
-                font-weight: 600;
-                color: var(--text);
-                margin-bottom: 0.5rem;
-                font-size: 0.95rem;
-            }
-
-            .example-desc {
-                font-size: 0.85rem;
-                color: var(--text-secondary);
-                font-weight: 400;
-            }
-
-            .loading {
-                display: inline-flex;
-                align-items: center;
-                gap: 0.5rem;
-                color: var(--text-secondary);
-                font-weight: 500;
-            }
-
-            .loading::after {
-                content: '';
-                width: 14px;
-                height: 14px;
-                border: 2px solid currentColor;
-                border-top-color: transparent;
-                border-radius: 50%;
-                animation: spin 1s linear infinite;
-            }
-
-            @keyframes spin {
-                to { transform: rotate(360deg); }
-            }
-
-            .visualization-container {
-                margin: 1.5rem 0;
-                background: var(--surface-elevated);
-                border-radius: 12px;
-                padding: 1.5rem;
-                border: 1px solid var(--border);
-            }
-
-            .welcome {
-                text-align: center;
-                padding: 4rem 2rem;
-                color: var(--text-secondary);
-            }
-
-            .welcome h3 {
-                font-size: 1.25rem;
-                font-weight: 600;
-                margin-bottom: 0.5rem;
-                color: var(--text);
-            }
-
-            .welcome p {
-                font-size: 0.95rem;
-                font-weight: 400;
-            }
-
-            @media (max-width: 768px) {
-                .container {
-                    padding: 1rem;
-                }
-                
-                .header h1 {
-                    font-size: 1.75rem;
-                }
-                
-                .chat-messages {
-                    height: 400px;
-                    padding: 1.5rem;
-                }
-                
-                .message-content {
-                    max-width: 85%;
-                    padding: 1rem 1.25rem;
-                }
-                
-                .input-area {
-                    padding: 1.5rem;
-                }
-                
-                .input-container {
-                    flex-direction: column;
-                    gap: 0.75rem;
-                }
-                
-                .send-button {
-                    align-self: stretch;
-                }
-                
-                .examples {
-                    grid-template-columns: 1fr;
-                }
-            }
-        </style>
-    </head>
-    <body>
-        <div class="container">
-            <div class="header">
-                <h1><span class="brand">Web3</span> Research Co-Pilot</h1>
-                <p>Professional cryptocurrency analysis and market intelligence</p>
-            </div>
-
-            <div id="status" class="status checking">
-                <span>Initializing research systems...</span>
-            </div>
-
-            <div class="chat-interface">
-                <div id="chatMessages" class="chat-messages">
-                    <div class="welcome">
-                        <h3>Welcome to Web3 Research Co-Pilot</h3>
-                        <p>Ask about market trends, DeFi protocols, or blockchain analytics</p>
-                    </div>
-                </div>
-                <div class="input-area">
-                    <div class="input-container">
-                        <input 
-                            type="text" 
-                            id="queryInput" 
-                            class="input-field"
-                            placeholder="Research Bitcoin trends, analyze DeFi yields, compare protocols..."
-                            maxlength="500"
-                        >
-                        <button id="sendBtn" class="send-button">Research</button>
-                    </div>
-                </div>
-            </div>
-
-            <div class="examples">
-                <div class="example" onclick="setQuery('Analyze Bitcoin price trends and institutional adoption patterns')">
-                    <div class="example-title">Market Analysis</div>
-                    <div class="example-desc">Bitcoin trends, institutional flows, and market sentiment</div>
-                </div>
-                <div class="example" onclick="setQuery('Compare top DeFi protocols by TVL, yield, and risk metrics')">
-                    <div class="example-title">DeFi Intelligence</div>
-                    <div class="example-desc">Protocol comparison, yield analysis, and risk assessment</div>
-                </div>
-                <div class="example" onclick="setQuery('Evaluate Ethereum Layer 2 scaling solutions and adoption metrics')">
-                    <div class="example-title">Layer 2 Research</div>
-                    <div class="example-desc">Scaling solutions, transaction costs, and ecosystem growth</div>
-                </div>
-                <div class="example" onclick="setQuery('Identify optimal yield farming strategies across multiple chains')">
-                    <div class="example-title">Yield Optimization</div>
-                    <div class="example-desc">Cross-chain opportunities, APY tracking, and risk analysis</div>
-                </div>
-            </div>
-        </div>
-
-        <script>
-            let chatHistory = [];
-            let messageCount = 0;
-
-            async function checkStatus() {
-                try {
-                    const response = await fetch('/status');
-                    const status = await response.json();
-                    
-                    const statusDiv = document.getElementById('status');
-                    
-                    if (status.enabled && status.gemini_configured) {
-                        statusDiv.className = 'status online';
-                        statusDiv.innerHTML = `
-                            <span>Research systems online</span>
-                            <div style="margin-top: 0.5rem; font-size: 0.85rem; opacity: 0.8;">
-                                Tools: ${status.tools_available.join(' • ')}
-                            </div>
-                        `;
-                    } else {
-                        statusDiv.className = 'status offline';
-                        statusDiv.innerHTML = `
-                            <span>Limited mode - Configure GEMINI_API_KEY for full functionality</span>
-                            <div style="margin-top: 0.5rem; font-size: 0.85rem; opacity: 0.8;">
-                                Available: ${status.tools_available.join(' • ')}
-                            </div>
-                        `;
-                    }
-                } catch (error) {
-                    const statusDiv = document.getElementById('status');
-                    statusDiv.className = 'status offline';
-                    statusDiv.innerHTML = '<span>Connection error</span>';
-                }
-            }
-
-            async function sendQuery() {
-                const input = document.getElementById('queryInput');
-                const sendBtn = document.getElementById('sendBtn');
-                const query = input.value.trim();
-
-                if (!query) return;
-
-                addMessage('user', query);
-                input.value = '';
-
-                sendBtn.disabled = true;
-                sendBtn.innerHTML = '<span class="loading">Processing</span>';
-
-                try {
-                    const response = await fetch('/query', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ query, chat_history: chatHistory })
-                    });
-
-                    const result = await response.json();
-
-                    if (result.success) {
-                        addMessage('assistant', result.response, result.sources, result.visualizations);
-                    } else {
-                        addMessage('assistant', result.response || 'Analysis failed. Please try again.');
-                    }
-                } catch (error) {
-                    addMessage('assistant', 'Connection error. Please check your network and try again.');
-                } finally {
-                    sendBtn.disabled = false;
-                    sendBtn.innerHTML = 'Research';
-                    input.focus();
-                }
-            }
-
-            function addMessage(sender, content, sources = [], visualizations = []) {
-                const messagesDiv = document.getElementById('chatMessages');
-                
-                // Clear welcome message
-                if (messageCount === 0) {
-                    messagesDiv.innerHTML = '';
-                }
-                messageCount++;
-
-                const messageDiv = document.createElement('div');
-                messageDiv.className = `message ${sender}`;
-
-                let sourcesHtml = '';
-                if (sources && sources.length > 0) {
-                    sourcesHtml = `
-                        <div class="sources">
-                            Sources: ${sources.map(s => `<span>${s}</span>`).join('')}
-                        </div>
-                    `;
-                }
-
-                let visualizationHtml = '';
-                if (visualizations && visualizations.length > 0) {
-                    visualizationHtml = visualizations.map(viz => 
-                        `<div class="visualization-container">${viz}</div>`
-                    ).join('');
-                }
-
-                messageDiv.innerHTML = `
-                    <div class="message-content">
-                        ${content.replace(/\n/g, '<br>')}
-                        ${sourcesHtml}
-                    </div>
-                    ${visualizationHtml}
-                    <div class="message-meta">${new Date().toLocaleTimeString()}</div>
-                `;
-
-                messagesDiv.appendChild(messageDiv);
-                messagesDiv.scrollTop = messagesDiv.scrollHeight;
-
-                chatHistory.push({ role: sender, content });
-                if (chatHistory.length > 20) chatHistory = chatHistory.slice(-20);
-            }
-
-            function setQuery(query) {
-                document.getElementById('queryInput').value = query;
-                setTimeout(() => sendQuery(), 100);
-            }
-
-            // Event listeners
-            document.getElementById('queryInput').addEventListener('keypress', (e) => {
-                if (e.key === 'Enter') sendQuery();
-            });
-
-            document.getElementById('sendBtn').addEventListener('click', sendQuery);
-
-            // Initialize
-            document.addEventListener('DOMContentLoaded', () => {
-                checkStatus();
-                document.getElementById('queryInput').focus();
-            });
-        </script>
-    </body>
-    </html>
-    """
-    return HTMLResponse(content=html_content)
-
+    """Serve the main interface using templates"""
+    return templates.TemplateResponse("index.html", {"request": request})
 @app.get("/status")
 async def get_status():
     """System status endpoint"""
@@ -790,8 +408,147 @@ async def get_status():
 
 @app.post("/query", response_model=QueryResponse)
 async def process_query(request: QueryRequest):
-    """Process research query"""
-    return await service.process_query(request.query)
+    """Process research query with sanitized logging"""
+    # Log incoming request without exposing sensitive data
+    query_preview = request.query[:50] + "..." if len(request.query) > 50 else request.query
+    logger.info(f"Query received: {query_preview}")
+    
+    start_time = datetime.now()
+    
+    try:
+        # Process the query
+        result = await service.process_query(request.query)
+        
+        # Log result without sensitive details
+        processing_time = (datetime.now() - start_time).total_seconds()
+        logger.info(f"Query processed in {processing_time:.2f}s - Success: {result.success}")
+        
+        if result.success:
+            logger.info(f"Response generated: {len(result.response)} characters")
+        else:
+            logger.info("Query processing failed")
+        
+        return result
+        
+    except Exception as e:
+        processing_time = (datetime.now() - start_time).total_seconds()
+        logger.error(f"Query processing error after {processing_time:.2f}s")
+        
+        return QueryResponse(
+            success=False,
+            response="We're experiencing technical difficulties. Please try again in a moment.",
+            error="System temporarily unavailable"
+        )
+
+@app.post("/query/stream")
+async def process_query_stream(request: QueryRequest):
+    """Process research query with real-time progress updates"""
+    query_preview = request.query[:50] + "..." if len(request.query) > 50 else request.query
+    logger.info(f"Streaming query received: {query_preview}")
+    
+    async def generate_progress():
+        try:
+            # Send initial status
+            yield f"data: {json.dumps({'type': 'status', 'message': 'Initializing research...', 'progress': 10})}\n\n"
+            await asyncio.sleep(0.1)
+            
+            # Send tool selection status
+            yield f"data: {json.dumps({'type': 'status', 'message': 'Analyzing query and selecting tools...', 'progress': 20})}\n\n"
+            await asyncio.sleep(0.5)
+            
+            # Send tools status
+            if service.agent and service.agent.enabled:
+                tools = [tool.name for tool in service.agent.tools]
+                yield f"data: {json.dumps({'type': 'tools', 'message': f'Available tools: {tools}', 'progress': 30})}\n\n"
+                await asyncio.sleep(0.5)
+            
+            # Send processing status
+            yield f"data: {json.dumps({'type': 'status', 'message': 'Executing tools and gathering data...', 'progress': 50})}\n\n"
+            await asyncio.sleep(0.5)
+            
+            # Send Ollama/Gemini processing status with heartbeats
+            llm_name = "Gemini" if request.use_gemini else "Ollama"
+            yield f"data: {json.dumps({'type': 'status', 'message': f'{llm_name} is analyzing data and generating response...', 'progress': 70})}\n\n"
+            await asyncio.sleep(1.0)
+            
+            # Send additional heartbeat messages during processing
+            yield f"data: {json.dumps({'type': 'status', 'message': f'{llm_name} is thinking deeply about your query...', 'progress': 75})}\n\n"
+            await asyncio.sleep(2.0)
+            
+            yield f"data: {json.dumps({'type': 'status', 'message': f'Still processing... {llm_name} generates detailed responses', 'progress': 80})}\n\n"
+            await asyncio.sleep(3.0)
+            
+            # Process the actual query with timeout and periodic heartbeats
+            start_time = datetime.now()
+            
+            # Create a task for the query processing
+            query_task = asyncio.create_task(service.process_query(request.query, request.use_gemini))
+            
+            try:
+                # Send periodic heartbeats while waiting for Ollama
+                heartbeat_count = 0
+                while not query_task.done():
+                    try:
+                        # Wait for either completion or timeout
+                        result = await asyncio.wait_for(asyncio.shield(query_task), timeout=10.0)
+                        break  # Query completed
+                    except asyncio.TimeoutError:
+                        # Send heartbeat every 10 seconds
+                        heartbeat_count += 1
+                        elapsed = (datetime.now() - start_time).total_seconds()
+                        
+                        if elapsed > 300:  # 5 minute hard timeout
+                            query_task.cancel()
+                            raise asyncio.TimeoutError("Hard timeout reached")
+                        
+                        progress = min(85 + (heartbeat_count * 2), 95)  # Progress slowly from 85 to 95
+                        llm_name = "Gemini" if request.use_gemini else "Ollama"
+                        yield f"data: {json.dumps({'type': 'status', 'message': f'{llm_name} is still working... ({elapsed:.0f}s elapsed)', 'progress': progress})}\n\n"
+                        
+                # If we get here, the query completed successfully
+                result = query_task.result()
+                processing_time = (datetime.now() - start_time).total_seconds()
+                
+                # Send completion status
+                yield f"data: {json.dumps({'type': 'status', 'message': f'Analysis complete ({processing_time:.1f}s)', 'progress': 90})}\n\n"
+                await asyncio.sleep(0.5)
+                
+                # Send final result
+                yield f"data: {json.dumps({'type': 'result', 'data': result.model_dump(), 'progress': 100})}\n\n"
+                
+            except asyncio.TimeoutError:
+                processing_time = (datetime.now() - start_time).total_seconds()
+                logger.error(f"Query processing timed out after {processing_time:.1f}s")
+                
+                # Send timeout result with available data
+                yield f"data: {json.dumps({'type': 'result', 'data': {'success': False, 'response': 'Analysis timed out, but tools successfully gathered data. The system collected cryptocurrency prices, DeFi protocol information, and blockchain data. Please try a simpler query or try again.', 'sources': [], 'metadata': {'timeout': True, 'processing_time': processing_time}, 'visualizations': [], 'error': 'Processing timeout'}, 'progress': 100})}\n\n"
+                
+            except Exception as query_error:
+                processing_time = (datetime.now() - start_time).total_seconds()
+                logger.error(f"Query processing failed: {query_error}")
+                
+                # Send error result
+                yield f"data: {json.dumps({'type': 'result', 'data': {'success': False, 'response': f'Analysis failed: {str(query_error)}. The system was able to gather some data but encountered an error during final processing.', 'sources': [], 'metadata': {'error': True, 'processing_time': processing_time}, 'visualizations': [], 'error': str(query_error)}, 'progress': 100})}\n\n"
+            
+            # Send completion signal
+            yield f"data: {json.dumps({'type': 'complete'})}\n\n"
+            
+        except Exception as e:
+            logger.error(f"Streaming error: {e}")
+            yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
+    
+    return StreamingResponse(
+        generate_progress(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "Content-Type": "text/event-stream",
+            "X-Accel-Buffering": "no",  # Disable buffering for nginx
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Headers": "Content-Type",
+        }
+    )
 
 @app.get("/health")
 async def health_check():
@@ -802,6 +559,54 @@ async def health_check():
         "service_enabled": service.enabled,
         "version": "2.0.0"
     }
+
+@app.get("/debug/tools")
+async def debug_tools():
+    """Debug endpoint to test tool availability and functionality"""
+    try:
+        if not service.enabled or not service.agent:
+            return {
+                "success": False,
+                "error": "AI agent not enabled",
+                "tools_available": False,
+                "gemini_configured": bool(config.GEMINI_API_KEY)
+            }
+        
+        tools_info = []
+        for tool in service.agent.tools:
+            tools_info.append({
+                "name": tool.name,
+                "description": getattr(tool, 'description', 'No description'),
+                "enabled": getattr(tool, 'enabled', True)
+            })
+        
+        # Test a simple API call
+        test_result = None
+        try:
+            test_result = await service.process_query("What is the current Bitcoin price?")
+        except Exception as e:
+            test_result = {"error": str(e)}
+        
+        return {
+            "success": True,
+            "tools_count": len(service.agent.tools),
+            "tools_info": tools_info,
+            "test_query_result": {
+                "success": test_result.success if hasattr(test_result, 'success') else False,
+                "response_length": len(test_result.response) if hasattr(test_result, 'response') else 0,
+                "sources": test_result.sources if hasattr(test_result, 'sources') else [],
+                "error": test_result.error if hasattr(test_result, 'error') else None
+            },
+            "gemini_configured": bool(config.GEMINI_API_KEY),
+            "timestamp": datetime.now().isoformat()
+        }
+    except Exception as e:
+        logger.error(f"Debug tools error: {e}")
+        return {
+            "success": False,
+            "error": str(e),
+            "timestamp": datetime.now().isoformat()
+        }
 
 if __name__ == "__main__":
     import uvicorn

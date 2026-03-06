@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, Union
 from langchain.tools import BaseTool
-from pydantic import BaseModel, Field, PrivateAttr
+from pydantic import BaseModel, Field, PrivateAttr, field_validator
 import asyncio
 import aiohttp
 import hashlib
@@ -14,7 +14,19 @@ logger = get_logger(__name__)
 
 class Web3ToolInput(BaseModel):
     query: str = Field(description="Search query or parameter")
-    filters: Optional[Dict[str, Any]] = Field(default=None, description="Additional filters")
+    filters: Optional[Union[Dict[str, Any], str]] = Field(default=None, description="Additional filters (dict) or filter type (string)")
+
+    @field_validator('filters')
+    @classmethod
+    def validate_filters(cls, v):
+        if v is None:
+            return None
+        if isinstance(v, str):
+            # Convert string filter to dict format
+            return {"type": v}
+        if isinstance(v, dict):
+            return v
+        return None
 
 class BaseWeb3Tool(BaseTool, ABC):
     name: str = "base_web3_tool"
@@ -72,11 +84,11 @@ class BaseWeb3Tool(BaseTool, ABC):
         key_data = f"{url}:{json.dumps(params, sort_keys=True)}"
         return hashlib.md5(key_data.encode()).hexdigest()[:16]
     
-    def _run(self, query: str, filters: Optional[Dict[str, Any]] = None) -> str:
+    def _run(self, query: str, filters: Optional[Dict[str, Any]] = None, **kwargs) -> str:
         return asyncio.run(self._arun(query, filters))
-    
+
     @abstractmethod
-    async def _arun(self, query: str, filters: Optional[Dict[str, Any]] = None) -> str:
+    async def _arun(self, query: str, filters: Optional[Dict[str, Any]] = None, **kwargs) -> str:
         pass
 
     async def cleanup(self):
