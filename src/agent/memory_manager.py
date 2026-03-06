@@ -1,4 +1,4 @@
-from langchain_community.memory import ConversationBufferWindowMemory
+from langchain.memory import ConversationBufferWindowMemory
 from typing import Dict, Any, List, Optional
 
 class MemoryManager:
