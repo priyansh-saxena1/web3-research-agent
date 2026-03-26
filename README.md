@@ -50,6 +50,10 @@ Ask questions like:
 - "What are the current Ethereum gas fees?"
 - "Track whale movements in Bitcoin today"
 
+## Secrets Setup
+
+Copy [.env.example](.env.example) to [.env](.env) and fill in your own API keys before running the app. Do not commit real credentials to the repository.
+
 ## 🔧 Development
 
 ### Local Setup
